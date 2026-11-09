@@ -291,8 +291,7 @@ def _measure_case(
         "memory_after_measurement": measured_memory,
         "peak_torch_allocated_bytes": measured_memory["torch_peak_allocated_bytes"],
         "peak_tracked_torch_plus_cupy_bytes": (
-            measured_memory["torch_peak_allocated_bytes"]
-            + measured_memory["cupy_pool_total_bytes"]
+            measured_memory["torch_peak_allocated_bytes"] + measured_memory["cupy_pool_total_bytes"]
         ),
         "output_finite": output_finite,
         "output_buffer_address_stable": output.data_ptr() == output_pointer,
@@ -378,7 +377,8 @@ def _measure_shear_active(
         result.append(
             {
                 "environments": num_envs,
-                "tactile_points_per_pad_batch": 126,
+                "pads_per_environment": 2,
+                "tactile_points_per_environment": 126,
                 "surface_points": 2048,
                 "active_points_per_environment": active_count,
                 "active_fraction": active_count / 2048,
