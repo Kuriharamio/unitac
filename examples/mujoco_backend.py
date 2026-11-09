@@ -146,6 +146,14 @@ def run(backend_type: str = "mujoco") -> dict[str, Any]:
                 raise AssertionError("backend site frame order changed")
             if tuple(frame.body_name for frame in site_frames) != ("left_pad", "right_pad"):
                 raise AssertionError("backend site frames are attached to unexpected bodies")
+            expected_site_quaternions = (
+                np.asarray([np.cos(np.pi / 8), 0.0, 0.0, np.sin(np.pi / 8)]),
+                np.asarray([np.cos(np.pi / 12), 0.0, 0.0, -np.sin(np.pi / 12)]),
+            )
+            for frame, expected_quaternion in zip(
+                site_frames, expected_site_quaternions, strict=True
+            ):
+                np.testing.assert_allclose(frame.quat, expected_quaternion, atol=2e-6)
             if "excluded_aux_geom" not in collision.geom_names:
                 raise AssertionError(
                     f"named geometry selection fixture is absent: {collision.geom_names}"
@@ -228,6 +236,10 @@ def run(backend_type: str = "mujoco") -> dict[str, Any]:
                 if not torch.allclose(body_poses.pos_w[0, 0], qpos[0, :3]):
                     raise AssertionError(
                         "public object world pose disagrees with its free-joint pose"
+                    )
+                if not torch.allclose(body_poses.quat_w[0, 0], qpos[0, 3:7]):
+                    raise AssertionError(
+                        "public body orientation does not match the free-joint wxyz quaternion"
                     )
                 sensor.update_pose(body_poses.pos_w, body_poses.quat_w)
                 sensor.advance()
