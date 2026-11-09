@@ -391,11 +391,13 @@ def run_interactive(args: argparse.Namespace) -> None:
         # is copied from the UniSim backend and this model is never stepped.
         render_model = mujoco.MjModel.from_xml_path(str(xml_path))
         render_data = mujoco.MjData(render_model)
+        viewer: mujoco.viewer.Handle | None = None
         try:
             _reset(backend, sensor, initial_qpos, initial_qvel)
             viewer = mujoco.viewer.launch_passive(
                 render_model, render_data, key_callback=key_callback
             )
+            assert viewer is not None
             simulation_steps = 0
             frame_index = 0
             last_sensor_cycle = 0
@@ -426,7 +428,11 @@ def run_interactive(args: argparse.Namespace) -> None:
                     phase = "Approach"
                 tactile_frame = visualizer.update(sensor, env_id=0)
                 contact_pixels = int(np.count_nonzero(tactile_frame.depth_mm < -0.05))
-                _sync_render_data(render_model, render_data, backend, simulation_steps)
+                # MuJoCo's passive viewer renders this model and data on its
+                # own thread, so state copies and mj_forward must share its
+                # lock with the render thread.
+                with viewer.lock():
+                    _sync_render_data(render_model, render_data, backend, simulation_steps)
                 viewport = viewer.viewport
                 if viewport is not None:
                     width = min(320, max(1, viewport.width - 10))
@@ -475,8 +481,14 @@ def run_interactive(args: argparse.Namespace) -> None:
                 elapsed = time.perf_counter() - now
                 if elapsed < frame_time:
                     time.sleep(frame_time - elapsed)
-            viewer.close()
         finally:
+            if viewer is not None:
+                if viewer.is_running():
+                    viewer.close()
+                # launch_passive owns a daemon render thread. Wait for its
+                # model to be released before GLFW's process-exit cleanup.
+                while viewer.m is not None:
+                    time.sleep(0.01)
             pose_plan.close()
             sensor.close()
             backend.close()
