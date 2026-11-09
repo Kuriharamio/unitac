@@ -1,0 +1,57 @@
+{
+  "source_commit": "26403177779c4f74689761c041fa9580b075dc08",
+  "source_branch": "unimanip-api",
+  "device": "NVIDIA GeForce RTX 4060 Laptop GPU",
+  "torch": "2.9.0+cu128",
+  "cuda": "12.8",
+  "units": "mm",
+  "dtype": "float32",
+  "shape": [
+    2,
+    9,
+    7,
+    3
+  ],
+  "surface_points": 2048,
+  "pads": 2,
+  "solver": {
+    "use_fft_dilation": false,
+    "use_matmul_shear": true
+  },
+  "gel_geometry": "synthetic closed box, half extents 10 x 12.625 x 3 mm; top face z=0",
+  "object_geometry": "synthetic closed box, half extents 5 x 5 x 4 mm",
+  "scenarios": {
+    "no_contact": {
+      "max_abs_mm": 0.0,
+      "norm_mm": 0.0
+    },
+    "press": {
+      "max_abs_mm": 57.17340850830078,
+      "norm_mm": 427.7005310058594
+    },
+    "translation": {
+      "max_abs_mm": 57.245086669921875,
+      "norm_mm": 451.1589660644531
+    },
+    "rotation": {
+      "max_abs_mm": 57.15911865234375,
+      "norm_mm": 430.6040954589844
+    },
+    "sliding": {
+      "max_abs_mm": 57.63100814819336,
+      "norm_mm": 466.96221923828125
+    },
+    "sustained_contact": {
+      "max_abs_mm": 57.17340850830078,
+      "norm_mm": 427.7005310058594
+    },
+    "multi_object": {
+      "max_abs_mm": 1.5030182600021362,
+      "norm_mm": 12.737489700317383
+    },
+    "partial_reset": {
+      "max_abs_mm": 1.0094941854476929,
+      "norm_mm": 9.36165714263916
+    }
+  }
+}

@@ -1,0 +1,72 @@
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "unitac"
+
+[project]
+name = "unitac"
+version = "0.1.0"
+description = "Tactile simulation plugin for UniSim"
+readme = "README.md"
+requires-python = ">=3.10,<3.14"
+license-files = ["THIRD_PARTY_NOTICES.md", "licenses/HydroShear-MIT.txt"]
+dependencies = ["numpy>=1.24", "unisim-core>=2.3.0"]
+keywords = ["physics", "simulation", "robotics", "tactile"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.optional-dependencies]
+hydroshear = ["torch>=2.7,<2.10", "cupy-cuda12x>=13.0", "opencv-python-headless>=4.11"]
+viz = ["matplotlib>=3.8"]
+
+[dependency-groups]
+dev = ["pytest>=8.0", "ruff", "mypy", "pyright"]
+
+[tool.uv.sources]
+unisim-core = { path = "third_party/unisim", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# Preserve the HydroShear source's established symbols for mathematical
+# coefficients and tensor dimensions in the MIT-derived algorithm modules.
+"src/unitac/hydroshear/depth.py" = ["N803", "N806"]
+"src/unitac/hydroshear/fft_dilation.py" = ["N806"]
+"src/unitac/hydroshear/fft_shear.py" = ["N806"]
+"src/unitac/hydroshear/solver.py" = ["E501", "E741", "N803", "N806", "N812"]
+
+[tool.mypy]
+mypy_path = "src"
+explicit_package_bases = true
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+no_site_packages = true
+
+[tool.pyright]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+include = ["src/unitac"]
+reportMissingImports = "warning"
+reportMissingModuleSource = "none"
+useLibraryCodeForTypes = false
