@@ -35,9 +35,6 @@ viz = ["matplotlib>=3.8"]
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff", "mypy", "pyright"]
 
-[tool.uv.sources]
-unisim-core = { path = "third_party/unisim", editable = true }
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
