@@ -196,13 +196,13 @@ def run(backend_type: str = "mujoco") -> dict[str, Any]:
             observed_body_names: tuple[str, ...] | None = None
             state_device = "cpu" if backend_type == "mujoco" else "cuda:0"
             for action, object_position in actions:
-                state = backend.get_state_views("qpos", device=state_device)
+                state = backend.get_state_views(("qpos", "qvel"), device=state_device)
                 qpos = state["qpos"].clone()
                 qpos[0, :3] = torch.tensor(object_position, dtype=torch.float32, device=qpos.device)
                 qpos[0, 3:7] = torch.tensor(
                     [1.0, 0.0, 0.0, 0.0], dtype=torch.float32, device=qpos.device
                 )
-                qvel = torch.zeros((1, backend.nv), dtype=torch.float32, device=qpos.device)
+                qvel = torch.zeros_like(state["qvel"])
                 backend.set_state_tensor(
                     torch.tensor([0], dtype=torch.int64, device=qpos.device),
                     qpos.contiguous(),
