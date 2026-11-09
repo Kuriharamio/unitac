@@ -5,15 +5,33 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import numpy as np
-from unisim.ray_query import RayCollisionDescription, RayGeomType
+from unisim.ray_query import RayCollisionDescription, RayGeometryState, RayGeomType
 
 
 def body_meshes(
-    collision: RayCollisionDescription, body_names: Sequence[str]
+    collision: RayCollisionDescription,
+    body_names: Sequence[str],
+    *,
+    geom_names: Sequence[str] | None = None,
+    geometry_state: RayGeometryState | None = None,
 ) -> tuple[np.ndarray, ...]:
-    """Convert selected public body geometry to body-local triangles."""
+    """Convert selected public collision geoms to body-local triangles.
+
+    Per-environment geometry snapshots are accepted only when the selected
+    geometry is identical across every row; HydroShear materializes one static
+    mesh set and cannot represent row-varying geometry.
+    """
     body_ids = {name: index for index, name in enumerate(collision.scene.body_names)}
     mesh_by_id = {index: mesh for index, mesh in enumerate(collision.meshes)}
+    if geom_names is None:
+        selected_geom_names = None
+    else:
+        selected_geom_names = set(geom_names)
+    if geometry_state is not None:
+        if not isinstance(geometry_state, RayGeometryState):
+            raise TypeError("geometry_state must be a RayGeometryState")
+        if geometry_state.geom_names != collision.geom_names:
+            raise ValueError("geometry_state geom_names must match collision geom_names in order")
     result = []
     for body_name in body_names:
         body_id = body_ids[body_name]
@@ -21,23 +39,74 @@ def body_meshes(
         for geom_id, geom_body in enumerate(collision.scene.geom_body_ids):
             if int(geom_body) != body_id:
                 continue
-            mesh_id = int(collision.geom_mesh_ids[geom_id])
+            geom_name = collision.geom_names[geom_id]
+            if selected_geom_names is not None and geom_name not in selected_geom_names:
+                continue
+            if geometry_state is None:
+                geom_pos = collision.scene.geom_local_pos[geom_id]
+                geom_quat = collision.scene.geom_local_quat[geom_id]
+                mesh_id = int(collision.geom_mesh_ids[geom_id])
+                enabled = True
+            else:
+                geom_pos = _uniform_geometry_row(
+                    geometry_state.geom_local_pos[:, geom_id], geom_name, "local pose"
+                )
+                geom_quat = _uniform_geometry_row(
+                    geometry_state.geom_local_quat[:, geom_id], geom_name, "local pose"
+                )
+                mesh_id = int(
+                    _uniform_geometry_row(
+                        geometry_state.geom_mesh_ids[:, geom_id], geom_name, "mesh identity"
+                    )
+                )
+                enabled = bool(
+                    _uniform_geometry_row(
+                        geometry_state.geom_enabled[:, geom_id], geom_name, "enabled state"
+                    )
+                )
+            if not enabled:
+                continue
             if mesh_id >= 0:
-                mesh = mesh_by_id[mesh_id]
+                try:
+                    mesh = mesh_by_id[mesh_id]
+                except KeyError as error:
+                    raise ValueError(
+                        f"geometry_state mesh id {mesh_id} for {geom_name!r} is absent"
+                    ) from error
+                # RayMeshDescription points already include mesh asset scaling
+                # and are expressed in the compiled geom-local frame. MuJoCo
+                # ignores geom_size for mesh geoms; multiplying it here applies
+                # a second, invalid scale.
                 triangles = mesh.points[mesh.indices.reshape(-1, 3)]
             else:
+                if geometry_state is None:
+                    geom_size = collision.scene.geom_sizes[geom_id]
+                else:
+                    geom_size = _uniform_geometry_row(
+                        geometry_state.geom_sizes[:, geom_id], geom_name, "size"
+                    )
                 triangles = _primitive_triangles(
                     collision.scene.geom_types[geom_id],
-                    collision.scene.geom_sizes[geom_id],
+                    geom_size,
                 )
-            geom_quat = collision.scene.geom_local_quat[geom_id]
             triangles = _rotate(triangles, geom_quat)
-            triangles += collision.scene.geom_local_pos[geom_id]
+            triangles += geom_pos
             parts.append(triangles.astype(np.float32, copy=False))
         if not parts:
             raise ValueError(f"tactile object body {body_name!r} has no collision geometry")
         result.append(np.ascontiguousarray(np.concatenate(parts, axis=0), dtype=np.float32))
     return tuple(result)
+
+
+def _uniform_geometry_row(
+    values: np.ndarray, geom_name: str, field: str
+) -> np.ndarray | np.generic:
+    if not np.array_equal(values, np.broadcast_to(values[0], values.shape)):
+        raise NotImplementedError(
+            f"HydroShear does not support per-environment geometry {field} variation "
+            f"for geom {geom_name!r}; rebuild requires one shared geometry"
+        )
+    return values[0]
 
 
 def sample_object_surfaces(meshes: Sequence[np.ndarray], count: int) -> tuple[np.ndarray, ...]:
@@ -186,41 +255,49 @@ def _primitive_triangles(geom_type: RayGeomType, size: np.ndarray) -> np.ndarray
         return _cylinder(float(size[0]), float(size[1]))
     if geom_type == RayGeomType.CAPSULE:
         radius, half_length = float(size[0]), float(size[1])
-        # Approximate the rounded ends with eight latitude rings per hemisphere.
+        if half_length == 0.0:
+            return _uv_sphere(np.repeat(radius, 3))
         segments, arc_steps = 32, 8
         angles = np.arange(segments) * (2.0 * np.pi / segments)
-        rings = []
-        for center, polar_values in (
-            (-half_length, np.linspace(-np.pi / 2, 0.0, arc_steps + 1)),
-            (half_length, np.linspace(0.0, np.pi / 2, arc_steps + 1)[1:]),
-        ):
-            for polar in polar_values:
-                rings.append(
-                    np.stack(
-                        (
-                            radius * np.cos(polar) * np.cos(angles),
-                            radius * np.cos(polar) * np.sin(angles),
-                            center + radius * np.sin(polar),
-                        ),
-                        axis=1,
-                    )
-                )
+        ring_params = [
+            (-half_length, -np.pi / 2 + step * np.pi / (2 * arc_steps))
+            for step in range(1, arc_steps + 1)
+        ]
+        ring_params.append((half_length, 0.0))
+        ring_params.extend(
+            (half_length, step * np.pi / (2 * arc_steps)) for step in range(1, arc_steps)
+        )
+        rings = [
+            np.stack(
+                (
+                    radius * np.cos(polar) * np.cos(angles),
+                    radius * np.cos(polar) * np.sin(angles),
+                    np.full(segments, center + radius * np.sin(polar)),
+                ),
+                axis=1,
+            )
+            for center, polar in ring_params
+        ]
         vertices = np.concatenate(rings, axis=0)
         faces: list[tuple[int, int, int]] = []
+        bottom_pole = len(vertices)
+        top_pole = bottom_pole + 1
+        vertices = np.concatenate(
+            (
+                vertices,
+                [[0.0, 0.0, -half_length - radius], [0.0, 0.0, half_length + radius]],
+            )
+        )
+        faces.extend((bottom_pole, (index + 1) % segments, index) for index in range(segments))
         for ring in range(len(rings) - 1):
             for index in range(segments):
                 nxt = (index + 1) % segments
                 a, b = ring * segments + index, ring * segments + nxt
                 c, d = (ring + 1) * segments + index, (ring + 1) * segments + nxt
                 faces.extend(((a, b, c), (b, d, c)))
-        vertices = np.concatenate(
-            (vertices, [[0.0, 0.0, -half_length - radius], [0.0, 0.0, half_length + radius]])
-        )
-        bottom, top = len(vertices) - 2, len(vertices) - 1
-        faces.extend((bottom, (index + 1) % segments, index) for index in range(segments))
         last_ring = (len(rings) - 1) * segments
         faces.extend(
-            (top, last_ring + index, last_ring + (index + 1) % segments)
+            (top_pole, last_ring + index, last_ring + (index + 1) % segments)
             for index in range(segments)
         )
         return vertices[np.asarray(faces, dtype=np.intp)].astype(np.float32)

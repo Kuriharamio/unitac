@@ -6,21 +6,21 @@ The `unisim` package owns the model-neutral `TactileSensor` contract and lazy pl
 
 ## Install
 
-The base package imports without Torch or CUDA libraries. Install the solver extra on a CUDA 12 system:
+The package is not published on PyPI yet. Install from the Phase 2 branch; the base import stays lazy, and the HydroShear extra adds Torch and CuPy for a CUDA 12 system:
 
 ```bash
-uv add unitac
-uv add unitac --extra hydroshear
+uv add "unitac @ git+https://github.com/Kuriharamio/UniTac.git@codex/phase2-correctness-hardening"
+uv add "unitac[hydroshear] @ git+https://github.com/Kuriharamio/UniTac.git@codex/phase2-correctness-hardening"
 ```
 
 For repository development, clone with submodules and sync the locked environment:
 
 ```bash
 git clone --recurse-submodules https://github.com/Kuriharamio/UniTac.git
-uv sync --extra hydroshear --extra viz
+uv sync --extra hydroshear --extra mujoco --extra viz
 ```
 
-HydroShear requires CUDA for signed-distance and depth computation. It accepts NumPy, CPU Torch, and CUDA Torch body poses, and returns a sensor-owned CUDA Torch displacement field. Gel triangles are supplied by the caller in the sensor frame and in metres. No HydroShear calibration files or gel mesh are bundled.
+HydroShear requires CUDA for signed-distance and depth computation. MuJoCo integration examples also need the `mujoco` extra. It accepts NumPy, CPU Torch, and CUDA Torch body poses, and returns a sensor-owned CUDA Torch displacement field. Gel triangles are supplied in the sensor frame and in metres. The test suite bundles the MIT-licensed original 512-triangle collision mesh; no calibration arrays or images are bundled.
 
 ## Use
 
@@ -58,6 +58,12 @@ Run the example and save its marker-field figure:
 
 ```bash
 uv run --extra hydroshear --extra viz python examples/press_slide.py
+```
+
+Run the real MuJoCo backend integration sequence:
+
+```bash
+uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
 ```
 
 ## Development

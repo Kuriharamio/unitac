@@ -12,7 +12,10 @@ description = "Tactile simulation plugin for UniSim"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license-files = ["THIRD_PARTY_NOTICES.md", "licenses/HydroShear-MIT.txt"]
-dependencies = ["numpy>=1.24", "unisim-core>=2.3.0"]
+dependencies = [
+    "numpy>=1.24",
+    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@25559099a1eb580c3ba72a1a7e89d7738a5fc39d",
+]
 keywords = ["physics", "simulation", "robotics", "tactile"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -26,6 +29,7 @@ classifiers = [
 
 [project.optional-dependencies]
 hydroshear = ["torch>=2.7,<2.10", "cupy-cuda12x>=13.0", "opencv-python-headless>=4.11"]
+mujoco = ["mujoco~=3.11.0", "mjbatch-uni~=0.2.5"]
 viz = ["matplotlib>=3.8"]
 
 [dependency-groups]

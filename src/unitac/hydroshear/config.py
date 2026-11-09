@@ -18,7 +18,6 @@ _SOLVER_DEFAULTS: dict[str, Any] = {
     "shear_scale": 1000.0 / 0.065,
     "dilate_scale": 1000.0 / 0.065,
     "normal_axis": 2,
-    "I": 1.0,
     "K": 1.0,
     "E": 1.0,
     "A": 1.0,
@@ -97,23 +96,31 @@ class HydroShearConfig:
         if (
             isinstance(normal_axis, bool)
             or not isinstance(normal_axis, (int, np.integer))
-            or normal_axis not in (0, 1, 2)
+            or normal_axis != 2
         ):
-            raise ValueError("solver.normal_axis must be 0, 1, or 2")
+            raise ValueError("HydroSoft currently supports only solver.normal_axis=2")
+        solver["normal_axis"] = 2
         for name in (
             "mu",
             "lambda_d",
             "lambda_s",
             "shear_scale",
             "dilate_scale",
-            "I",
             "K",
             "E",
             "A",
         ):
-            value = np.asarray(solver[name], dtype=np.float64)
+            value = np.asarray(solver[name])
+            if value.dtype.kind not in "iuf" or value.ndim not in (0, 1):
+                raise TypeError(
+                    f"solver.{name} must be a numeric scalar or one-dimensional environment array"
+                )
+            value = value.astype(np.float64, copy=False)
+            if value.ndim == 1 and value.size == 0:
+                raise ValueError(f"solver.{name} environment array must not be empty")
             if not np.isfinite(value).all() or np.any(value < 0):
                 raise ValueError(f"solver.{name} must contain finite non-negative values")
+            solver[name] = float(value) if value.ndim == 0 else tuple(float(item) for item in value)
         for name in ("reverse_z", "use_fft_dilation", "use_matmul_shear"):
             if not isinstance(solver[name], bool):
                 raise TypeError(f"solver.{name} must be bool")
@@ -136,7 +143,9 @@ class HydroShearConfig:
         ):
             raise ValueError("solver.fft_dilation_grid_shape must contain two positive integers")
         device = config.get("device", "cuda:0")
-        if not isinstance(device, str) or not device.startswith("cuda"):
+        if not isinstance(device, str) or not (
+            device == "cuda" or (device.startswith("cuda:") and device[5:].isdigit())
+        ):
             raise ValueError("HydroShear requires a CUDA device such as 'cuda:0'")
         return cls(
             gel_triangles=triangles,
@@ -158,6 +167,8 @@ def _positive_int(value: Any, name: str) -> int:
 
 
 def _positive_float(value: Any, name: str) -> float:
+    if isinstance(value, (bool, np.bool_)):
+        raise TypeError(f"{name} must be a number, not bool")
     result = float(value)
     if not np.isfinite(result) or result <= 0:
         raise ValueError(f"{name} must be positive and finite")
@@ -165,6 +176,8 @@ def _positive_float(value: Any, name: str) -> float:
 
 
 def _pair(value: Any, name: str) -> tuple[float, float]:
+    if isinstance(value, (str, bytes)):
+        raise TypeError(f"{name} must be a finite [x, y] pair")
     result = np.asarray(value, dtype=np.float64)
     if result.shape != (2,) or not np.isfinite(result).all():
         raise ValueError(f"{name} must be a finite [x, y] pair")

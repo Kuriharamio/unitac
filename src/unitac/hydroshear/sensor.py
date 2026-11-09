@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -67,7 +68,6 @@ class HydroShearSensor(TactileSensor):
             self._torch_device = torch.device("cuda", torch.cuda.current_device())
         if self._torch_device.index >= torch.cuda.device_count():
             raise ValueError(f"CUDA device {self._torch_device.index} is unavailable")
-        torch.cuda.set_device(self._torch_device)
         try:
             import cupy as cp
         except ImportError as error:
@@ -142,7 +142,12 @@ class HydroShearSensor(TactileSensor):
         self._ensure_open()
         if self._materialized:
             raise RuntimeError("HydroShearSensor is already materialized; use rebuild(scene)")
-        self._bind_scene(scene)
+        try:
+            with self._cp.cuda.Device(self._device_id):
+                self._bind_scene(scene)
+        except Exception:
+            self._release_materialized()
+            raise
         self._pose_ready = True
 
     def rebuild(self, scene: TactileSceneDescription) -> None:
@@ -153,7 +158,12 @@ class HydroShearSensor(TactileSensor):
         if old_pad_count and len(scene.sensor_frames) != old_pad_count:
             raise ValueError("geometry rebuild cannot change the number of mounted tactile frames")
         self._release_materialized()
-        self._bind_scene(scene)
+        try:
+            with self._cp.cuda.Device(self._device_id):
+                self._bind_scene(scene)
+        except Exception:
+            self._release_materialized()
+            raise
 
     def _bind_scene(self, scene: TactileSceneDescription) -> None:
         if not isinstance(scene, TactileSceneDescription):
@@ -169,7 +179,14 @@ class HydroShearSensor(TactileSensor):
         self._scene = scene
         self._object_body_ids = tuple(body_ids[name] for name in scene.object_body_names)
         self._pad_body_ids = tuple(body_ids[frame.body_name] for frame in scene.sensor_frames)
-        self._object_meshes = body_meshes(scene.collision, scene.object_body_names)
+        if scene.geometry_state is not None and scene.geometry_state.num_envs != self.num_envs:
+            raise ValueError("tactile geometry_state num_envs must match HydroShearSensor.num_envs")
+        self._object_meshes = body_meshes(
+            scene.collision,
+            scene.object_body_names,
+            geom_names=scene.object_geom_names,
+            geometry_state=scene.geometry_state,
+        )
         self._object_points = sample_object_surfaces(
             self._object_meshes, self._config.surface_points
         )
@@ -273,25 +290,35 @@ class HydroShearSensor(TactileSensor):
         env_ids: Sequence[int] | Any | None = None,
     ) -> None:
         self._require_materialized()
-        ids = _environment_rows(env_ids, self.num_envs)
         scene = self._scene
         if scene is None:
             raise RuntimeError("HydroShear scene is not materialized")
         expected_body_count = scene.collision.scene.num_bodies
         position, quaternion, profile = self._pose_inputs(body_pos, body_quat)
-        if position.shape != (len(ids), expected_body_count, 3):
-            raise ValueError(
-                "body_pos must have shape "
-                f"({len(ids)}, {expected_body_count}, 3), got {tuple(position.shape)}"
-            )
-        if quaternion.shape != (len(ids), expected_body_count, 4):
-            raise ValueError(
-                "body_quat must have shape "
-                f"({len(ids)}, {expected_body_count}, 4), got {tuple(quaternion.shape)}"
-            )
         cp = self._cp
         self._record_stage("pose_input", start=True)
-        with self._caller_stream():
+        with cp.cuda.Device(self._device_id), self._caller_stream():
+            rows = _environment_rows(env_ids, self.num_envs, self._device_id, cp)
+            selected_rows = rows.count
+            if selected_rows is None:
+                selected_rows = position.shape[0]
+                if selected_rows > self.num_envs:
+                    raise ValueError("selected body poses cannot exceed num_envs")
+                mask_count = rows.device_selector.sum()
+                _assert_async(
+                    mask_count == selected_rows,
+                    "body pose row count must match the CUDA environment mask",
+                )
+            if position.shape != (selected_rows, expected_body_count, 3):
+                raise ValueError(
+                    "body_pos must have shape "
+                    f"({selected_rows}, {expected_body_count}, 3), got {tuple(position.shape)}"
+                )
+            if quaternion.shape != (selected_rows, expected_body_count, 4):
+                raise ValueError(
+                    "body_quat must have shape "
+                    f"({selected_rows}, {expected_body_count}, 4), got {tuple(quaternion.shape)}"
+                )
             if profile == "torch_cuda":
                 pos_gpu = cp.from_dlpack(position.contiguous())
                 quat_gpu = cp.from_dlpack(quaternion.contiguous())
@@ -316,8 +343,19 @@ class HydroShearSensor(TactileSensor):
                 self._transfer_stats["host_to_device_bytes"] += int(
                     pos_host.nbytes + quat_host.nbytes
                 )
-            self._body_pos[ids] = pos_gpu
-            self._body_quat[ids] = quat_gpu
+            if rows.kind == "mask":
+                if selected_rows:
+                    mask = cp.from_dlpack(rows.device_selector)
+                    source_rows = cp.minimum(cp.cumsum(mask, dtype=cp.int64) - 1, selected_rows - 1)
+                    position_rows = pos_gpu[source_rows]
+                    quaternion_rows = quat_gpu[source_rows]
+                    row_mask = mask[:, None, None]
+                    cp.copyto(self._body_pos, position_rows, where=row_mask)
+                    cp.copyto(self._body_quat, quaternion_rows, where=row_mask)
+            else:
+                selector = _cupy_selector(rows, self._torch_device, cp)
+                self._body_pos[selector] = pos_gpu
+                self._body_quat[selector] = quat_gpu
         self._record_stage("pose_input", start=False)
         self._pose_ready = True
 
@@ -467,19 +505,31 @@ class HydroShearSensor(TactileSensor):
 
     def reset(self, env_ids: Sequence[int] | Any | None = None) -> None:
         self._require_materialized()
-        rows = _environment_rows(env_ids, self.num_envs)
-        if rows.size == 0:
-            return
-        pad_rows = (
-            rows[:, None] * len(self._pad_body_ids)
-            + np.arange(len(self._pad_body_ids), dtype=np.int64)[None, :]
-        ).reshape(-1)
-        row_tensor = torch.as_tensor(rows, dtype=torch.long, device=self._torch_device)
-        pad_tensor = torch.as_tensor(pad_rows, dtype=torch.long, device=self._torch_device)
-        with self._caller_stream():
-            self._solver.reset(pad_tensor)
-            self._depth_cp[pad_rows] = 0.0
-            self._output[row_tensor] = 0.0
+        cp = self._cp
+        with cp.cuda.Device(self._device_id), self._caller_stream():
+            rows = _environment_rows(env_ids, self.num_envs, self._device_id, cp)
+            if rows.count == 0:
+                return
+            pad_rows = _pad_environment_rows(rows, len(self._pad_body_ids), self._torch_device)
+            self._solver.reset(pad_rows)
+            depth = self._depth_cp.reshape(self.num_envs, len(self._pad_body_ids), 175, 100)
+            if rows.kind == "all":
+                depth[...] = 0.0
+                self._output.zero_()
+            elif rows.kind == "mask":
+                mask = cp.from_dlpack(rows.device_selector)
+                cp.copyto(depth, 0.0, where=mask[:, None, None, None])
+                output_mask = rows.device_selector[:, None, None, None, None]
+                self._output.masked_fill_(output_mask, 0.0)
+            else:
+                selector = _cupy_selector(rows, self._torch_device, cp)
+                depth[selector] = 0.0
+                if pad_rows is None:
+                    raise RuntimeError("selected environment reset has no pad rows")
+                output_rows = self._output.reshape(
+                    self.num_envs * len(self._pad_body_ids), *self._output.shape[2:]
+                )
+                output_rows.index_fill_(0, pad_rows, 0.0)
         self._has_observation = True
 
     def close(self) -> None:
@@ -543,27 +593,106 @@ class HydroShearSensor(TactileSensor):
             raise RuntimeError("HydroShearSensor must be materialized before this operation")
 
 
-def _environment_rows(env_ids: Any, num_envs: int) -> np.ndarray:
+@dataclass(frozen=True)
+class _EnvironmentRows:
+    kind: str
+    count: int | None
+    cpu_indices: np.ndarray | None = None
+    device_selector: torch.Tensor | None = None
+
+
+def _environment_rows(env_ids: Any, num_envs: int, device_id: int, cp: Any) -> _EnvironmentRows:
     if env_ids is None:
-        return np.arange(num_envs, dtype=np.int64)
+        return _EnvironmentRows("all", num_envs)
     if isinstance(env_ids, torch.Tensor):
+        if env_ids.device.type == "cuda":
+            if env_ids.device.index != device_id:
+                raise ValueError(
+                    f"env_ids use cuda:{env_ids.device.index}; expected cuda:{device_id}"
+                )
+            return _device_environment_rows(env_ids.detach(), num_envs)
         if env_ids.device.type != "cpu":
-            env_ids = env_ids.detach().cpu().numpy()
-        else:
-            env_ids = env_ids.detach().numpy()
+            raise TypeError("env_ids must be CPU or configured-device CUDA values")
+        env_ids = env_ids.detach().numpy()
+    elif isinstance(env_ids, cp.ndarray):
+        if int(env_ids.device.id) != device_id:
+            raise ValueError(f"env_ids use cuda:{env_ids.device.id}; expected cuda:{device_id}")
+        return _device_environment_rows(torch.from_dlpack(env_ids), num_envs)
     values = np.asarray(env_ids)
     if values.ndim != 1:
         raise ValueError("env_ids must be one-dimensional")
     if values.dtype == np.bool_:
         if values.shape != (num_envs,):
             raise ValueError(f"boolean env_ids must have length {num_envs}")
-        return np.flatnonzero(values).astype(np.int64)
-    if values.size and values.dtype.kind not in "iu":
+        values = np.flatnonzero(values)
+    elif values.size and values.dtype.kind not in "iu":
         raise TypeError("env_ids must contain integers or a full-width boolean mask")
     rows = values.astype(np.int64, copy=False)
-    if np.any(rows < 0) or np.any(rows >= num_envs) or np.unique(rows).size != rows.size:
+    if np.any(rows < 0) or np.any(rows >= num_envs):
+        raise IndexError("env_ids must be within the environment batch")
+    if np.unique(rows).size != rows.size:
         raise IndexError("env_ids must be distinct and within the environment batch")
-    return rows
+    return _EnvironmentRows("indices", int(rows.size), cpu_indices=rows)
+
+
+def _device_environment_rows(selector: torch.Tensor, num_envs: int) -> _EnvironmentRows:
+    if selector.ndim != 1:
+        raise ValueError("env_ids must be one-dimensional")
+    if selector.dtype == torch.bool:
+        if selector.shape != (num_envs,):
+            raise ValueError(f"boolean env_ids must have length {num_envs}")
+        return _EnvironmentRows("mask", None, device_selector=selector.contiguous())
+    if selector.dtype not in (
+        torch.uint8,
+        torch.int8,
+        torch.int16,
+        torch.int32,
+        torch.int64,
+    ):
+        raise TypeError("env_ids must contain integers or a full-width boolean mask")
+    indices = selector.to(dtype=torch.long).contiguous()
+    if indices.numel():
+        _assert_async(
+            torch.all((indices >= 0) & (indices < num_envs)),
+            "env_ids must be within the environment batch",
+        )
+        sorted_indices = torch.sort(indices).values
+        _assert_async(
+            torch.all(sorted_indices[1:] != sorted_indices[:-1]),
+            "env_ids must be distinct",
+        )
+    return _EnvironmentRows("indices", indices.numel(), device_selector=indices)
+
+
+def _torch_selector(rows: _EnvironmentRows, device: torch.device) -> torch.Tensor | None:
+    if rows.kind == "all":
+        return None
+    if rows.device_selector is not None:
+        return rows.device_selector
+    if rows.cpu_indices is None:
+        raise RuntimeError("environment selector has no index data")
+    return torch.as_tensor(rows.cpu_indices, dtype=torch.long, device=device)
+
+
+def _cupy_selector(rows: _EnvironmentRows, device: torch.device, cp: Any) -> Any:
+    if rows.kind == "all":
+        return slice(None)
+    selector = _torch_selector(rows, device)
+    if selector is None:
+        return slice(None)
+    return cp.from_dlpack(selector)
+
+
+def _pad_environment_rows(
+    rows: _EnvironmentRows, pad_count: int, device: torch.device
+) -> torch.Tensor | None:
+    selector = _torch_selector(rows, device)
+    if selector is None:
+        return None
+    if rows.kind == "mask":
+        return torch.repeat_interleave(selector, pad_count)
+    offsets = torch.arange(pad_count, dtype=torch.long, device=device)
+    return (selector[:, None] * pad_count + offsets[None, :]).reshape(-1)
 
 
 def _cp_quat_conjugate(quaternion: Any) -> Any:

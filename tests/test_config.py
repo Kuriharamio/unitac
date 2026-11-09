@@ -47,3 +47,36 @@ def test_config_rejects_unknown_solver_fields_and_camera_out_of_bounds():
                 },
             }
         )
+
+
+@pytest.mark.parametrize("normal_axis", [0, 1])
+def test_config_rejects_unsupported_hydrosoft_normal_axes(normal_axis):
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    with pytest.raises(ValueError, match="supports only solver.normal_axis=2"):
+        HydroShearConfig.from_mapping({"gel_mesh": gel, "solver": {"normal_axis": normal_axis}})
+
+
+def test_config_rejects_legacy_ineffective_and_invalid_solver_parameters():
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    with pytest.raises(ValueError, match="unknown HydroSoft solver parameters"):
+        HydroShearConfig.from_mapping({"gel_mesh": gel, "solver": {"I": 2.0}})
+    for value in (True, np.ones((2, 1)), [], [1.0, np.nan], -1.0):
+        with pytest.raises((TypeError, ValueError)):
+            HydroShearConfig.from_mapping({"gel_mesh": gel, "solver": {"mu": value}})
+
+
+def test_config_accepts_scalar_and_per_environment_solver_coefficients():
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    config = HydroShearConfig.from_mapping(
+        {"gel_mesh": gel, "solver": {"mu": 0.4, "E": [1.0, 2.0], "A": (3.0, 4.0)}}
+    )
+    assert config.solver["mu"] == 0.4
+    assert config.solver["E"] == (1.0, 2.0)
+    assert config.solver["A"] == (3.0, 4.0)
+
+
+@pytest.mark.parametrize("device", ["cuda:", "cuda:bad", "cuda:-1", "cpu", "cuda:0x"])
+def test_config_rejects_invalid_cuda_device_labels(device):
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    with pytest.raises(ValueError, match="requires a CUDA device"):
+        HydroShearConfig.from_mapping({"gel_mesh": gel, "device": device})

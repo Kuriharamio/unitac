@@ -173,3 +173,50 @@ def test_rebuild_requires_fresh_pose_update_and_close_is_idempotent():
     sensor.close()
     with pytest.raises(RuntimeError, match="closed"):
         sensor.read()
+
+
+def test_materialize_uses_identity_poses_and_reset_enables_read_before_first_advance():
+    sensor = create_tactile_sensor(
+        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
+    )
+    sensor.materialize(make_scene())
+    torch.cuda.synchronize()
+    initial_pos = torch.from_dlpack(sensor._body_pos)
+    torch.testing.assert_close(initial_pos, torch.zeros_like(initial_pos))
+    initial_quat = torch.from_dlpack(sensor._body_quat)
+    expected_quat = torch.zeros_like(initial_quat)
+    expected_quat[..., 0] = 1.0
+    torch.testing.assert_close(initial_quat, expected_quat)
+
+    with pytest.raises(RuntimeError, match="advance must complete"):
+        sensor.read()
+    sensor.reset()
+    output = sensor.read()["displacement"]
+    torch.testing.assert_close(output, torch.zeros_like(output))
+    sensor.close()
+
+
+@pytest.mark.parametrize("failure_point", ["materialize", "rebuild"])
+def test_failed_materialization_releases_partial_device_resources(failure_point, monkeypatch):
+    sensor = create_tactile_sensor(
+        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
+    )
+    if failure_point == "rebuild":
+        sensor.materialize(make_scene())
+    original = sensor._create_solver
+
+    def fail_once(*_args):
+        monkeypatch.setattr(sensor, "_create_solver", original)
+        raise RuntimeError("injected solver construction failure")
+
+    monkeypatch.setattr(sensor, "_create_solver", fail_once)
+    operation = sensor.materialize if failure_point == "materialize" else sensor.rebuild
+    with pytest.raises(RuntimeError, match="injected solver construction failure"):
+        operation(make_scene())
+    assert not sensor._materialized
+    assert sensor._scene is None
+    assert sensor._body_pos is None
+    assert sensor._output is None
+
+    sensor.materialize(make_scene())
+    sensor.close()

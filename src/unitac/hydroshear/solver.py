@@ -6,9 +6,6 @@ Derived from HydroShear by MMintLab (MIT); see ``licenses/HydroShear-MIT.txt``.
 from typing import Any
 
 import torch
-
-# from hydroshear.utils.torch_utils import tf_combine, tf_inverse, tf_apply
-# from hydroshear.utils.torch_utils import quat_apply, quat_conjugate, quat_mul
 import torch.nn.functional as F
 
 
@@ -26,7 +23,6 @@ class HydroSoftSensor:
         shear_scale=1000 / 0.065,
         dilate_scale=1000 / 0.065,
         normal_axis=2,
-        I=1.0,
         K=1.0,
         E=1.0,
         A=1.0,
@@ -35,13 +31,12 @@ class HydroSoftSensor:
         fft_dilation_min_pts=256,
         fft_dilation_grid_shape=(9, 7),
         use_matmul_shear=False,
-        **_unused: Any,
+        device: Any = "cuda",
     ):
         super().__init__()
-        self.device = _unused.pop("device", "cuda")
+        self.device = device
 
         # initialize coefficients
-        self.I = I
         self.K = K
         self.E = E
         self.A = A
@@ -52,21 +47,49 @@ class HydroSoftSensor:
 
         self.shear_scale = shear_scale
         self.dilate_scale = dilate_scale
-        self.reverse_z = bool(reverse_z)
-        self.use_fft_dilation = bool(use_fft_dilation)
-        self.fft_dilation_min_pts = int(fft_dilation_min_pts)
+        for name, value in (
+            ("reverse_z", reverse_z),
+            ("use_fft_dilation", use_fft_dilation),
+            ("use_matmul_shear", use_matmul_shear),
+        ):
+            if not isinstance(value, bool):
+                raise TypeError(f"{name} must be bool")
+        if (
+            isinstance(fft_dilation_min_pts, bool)
+            or not isinstance(fft_dilation_min_pts, int)
+            or fft_dilation_min_pts <= 0
+        ):
+            raise ValueError("fft_dilation_min_pts must be a positive integer")
+        if (
+            isinstance(fft_dilation_grid_shape, (str, bytes))
+            or len(fft_dilation_grid_shape) != 2
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in fft_dilation_grid_shape
+            )
+        ):
+            raise ValueError("fft_dilation_grid_shape must contain two positive integers")
+        self.reverse_z = reverse_z
+        self.use_fft_dilation = use_fft_dilation
+        self.fft_dilation_min_pts = fft_dilation_min_pts
         self.fft_dilation_grid_shape = tuple(fft_dilation_grid_shape)
         self._fft_dilation = None
-        self.use_matmul_shear = bool(use_matmul_shear)
+        self.use_matmul_shear = use_matmul_shear
 
         self.hydrosoft_forces: Any = None
         self.prev_sdf: Any = None
         self.prev_grasped_obj_pts_elastomer: Any = None
 
-        self.normal_axis = normal_axis  # default z axis
+        if isinstance(normal_axis, bool) or not isinstance(normal_axis, int) or normal_axis != 2:
+            raise ValueError("HydroSoftSensor currently supports only normal_axis=2")
+        self.normal_axis = normal_axis
         self.tangent_axes = [i for i in range(3) if i != normal_axis]
 
     def initialize(self, num_envs, num_obj_pts):
+        if isinstance(num_envs, bool) or not isinstance(num_envs, int) or num_envs <= 0:
+            raise ValueError("num_envs must be a positive integer")
+        if isinstance(num_obj_pts, bool) or not isinstance(num_obj_pts, int) or num_obj_pts <= 0:
+            raise ValueError("num_obj_pts must be a positive integer")
         self.num_envs = int(num_envs)
         self.num_obj_pts = int(num_obj_pts)
         self.hydrosoft_forces = torch.zeros(
@@ -87,15 +110,29 @@ class HydroSoftSensor:
         self._lambda_d_device = self._device_coefficient(self.lambda_d)
         self._shear_scale_device = self._device_coefficient(self.shear_scale)
         self._dilate_scale_device = self._device_coefficient(self.dilate_scale)
+        self._mu_device = self._device_coefficient(self.mu)
+        self._normal_stiffness_device = self._device_coefficient(self.E) * self._device_coefficient(
+            self.A
+        )
+        self._tangent_stiffness_device = self._device_coefficient(
+            self.K
+        ) * self._device_coefficient(self.A)
         self._heaviside_zero = torch.zeros(1, device=self.device)
 
     def _device_coefficient(self, value):
-        coefficient = torch.as_tensor(value, device=self.device, dtype=torch.float32)
+        coefficient = torch.as_tensor(value, device=self.device)
+        if coefficient.dtype == torch.bool or coefficient.is_complex():
+            raise TypeError("HydroSoft coefficients must be real numeric values")
+        coefficient = coefficient.to(dtype=torch.float32)
+        if coefficient.ndim not in (0, 1) or coefficient.numel() == 0:
+            raise ValueError("HydroSoft coefficients must be scalars or one-dimensional arrays")
+        if not bool(torch.isfinite(coefficient).all()) or bool(torch.any(coefficient < 0)):
+            raise ValueError("HydroSoft coefficients must be finite and non-negative")
         if coefficient.numel() == 1:
             return coefficient.reshape(())
         if coefficient.numel() != self.num_envs:
             raise ValueError(f"HydroSoft coefficient must be scalar or have {self.num_envs} values")
-        return coefficient.reshape(self.num_envs, 1, 1)
+        return coefficient.reshape(self.num_envs)
 
     def _coefficient_for_rank(self, value, rank):
         if value.numel() == 1:
@@ -110,28 +147,52 @@ class HydroSoftSensor:
             self._reset_mask.fill_(True)
             self.hydrosoft_forces.zero_()
             return
-        selector = torch.as_tensor(env_ids, device=self.device).reshape(-1)
+        if isinstance(env_ids, torch.Tensor):
+            selector = env_ids.detach()
+            if selector.device.type == "cuda" and selector.device != self.hydrosoft_forces.device:
+                raise ValueError("HydroSoft reset selector must use the solver device")
+            if selector.device.type not in ("cpu", "cuda"):
+                raise TypeError("HydroSoft reset selector must use CPU or solver-device CUDA")
+        else:
+            selector = torch.as_tensor(env_ids)
+        if selector.ndim != 1:
+            raise ValueError("HydroSoft reset selector must be one-dimensional")
+        if selector.numel() == 0:
+            return
         if selector.dtype == torch.bool:
             if selector.shape != (self.num_envs,):
                 raise ValueError(
                     f"HydroSoftSensor boolean reset mask must have length {self.num_envs}"
                 )
+            selector = selector.to(device=self.device)
             self._reset_mask.logical_or_(selector)
-            self.hydrosoft_forces[selector] = 0
+            mask = selector[:, None, None]
+            self.hydrosoft_forces.masked_fill_(mask, 0.0)
             return
+        if selector.dtype not in (
+            torch.uint8,
+            torch.int8,
+            torch.int16,
+            torch.int32,
+            torch.int64,
+        ):
+            raise TypeError("HydroSoft reset selector must contain integers or booleans")
         ids = selector.to(dtype=torch.long)
-        if ids.numel() == 0:
-            return
+        if ids.device != self.hydrosoft_forces.device:
+            ids = ids.to(device=self.hydrosoft_forces.device)
         valid = torch.all((ids >= 0) & (ids < self.num_envs))
+        sorted_ids = torch.sort(ids).values
+        distinct = torch.all(sorted_ids[1:] != sorted_ids[:-1])
         if ids.device.type == "cuda":
-            assert_async = getattr(torch, "_assert_async", None)
-            if not callable(assert_async):
-                raise RuntimeError("Torch build does not provide asynchronous CUDA assertions")
-            assert_async(valid, "HydroSoftSensor reset ids are out of range")
-        elif not bool(valid):
-            raise IndexError("HydroSoftSensor reset ids are out of range")
-        self._reset_mask[ids] = True
-        self.hydrosoft_forces[ids] = 0
+            _assert_async(valid, "HydroSoftSensor reset ids are out of range")
+            _assert_async(distinct, "HydroSoft reset ids must be distinct")
+        else:
+            if not bool(valid):
+                raise IndexError("HydroSoftSensor reset ids are out of range")
+            if not bool(distinct):
+                raise IndexError("HydroSoft reset ids must be distinct")
+        self._reset_mask.index_fill_(0, ids, True)
+        self.hydrosoft_forces.index_fill_(0, ids, 0.0)
 
     def step_hydrosoft_forces(self, grasped_obj_pts_in_elastomer, grasped_obj_sdf, reverse_z=None):
         if reverse_z is None:
@@ -156,8 +217,7 @@ class HydroSoftSensor:
         # alpha_d = (F.relu(-sdf) - F.relu(-self.prev_sdf)) / (self.prev_sdf - sdf + 1e-8)
         # displacement = alpha_d.unsqueeze(-1) * (self.prev_grasped_obj_pts_elastomer - grasped_obj_pts_in_elastomer) # (num_envs, num_pts, 3)
         alpha_d = -torch.divide(F.relu(-self.prev_sdf) - F.relu(-sdf), self.prev_sdf - sdf)
-        alpha_isnan = torch.isnan(alpha_d)
-        alpha_d[alpha_isnan] = -0.5 * (torch.sign(sdf[alpha_isnan]) - 1)
+        alpha_d = torch.where(torch.isnan(alpha_d), -0.5 * (torch.sign(sdf) - 1), alpha_d)
         displacement = alpha_d.unsqueeze(-1) * (
             self.prev_grasped_obj_pts_elastomer - grasped_obj_pts_in_elastomer
         )
@@ -169,11 +229,13 @@ class HydroSoftSensor:
         # ft = self.hydrosoft_forces[:,:,:2]
         fn = (
             self.hydrosoft_forces[:, :, self.normal_axis]
-            + self.E * self.A * displacement[:, :, self.normal_axis]
+            + self._coefficient_for_rank(self._normal_stiffness_device, 2)
+            * displacement[:, :, self.normal_axis]
         )
         ft = (
             self.hydrosoft_forces[:, :, self.tangent_axes]
-            + self.K * self.A * displacement[:, :, self.tangent_axes]
+            + self._coefficient_for_rank(self._tangent_stiffness_device, 3)
+            * displacement[:, :, self.tangent_axes]
         )
 
         # fn_bar = F.relu(fn)
@@ -185,7 +247,9 @@ class HydroSoftSensor:
         # ft_bar[norm_ft > 1e-8] = torch.clamp(self.mu * fn_bar[norm_ft > 1e-8] / norm_ft[norm_ft > 1e-8], 1).unsqueeze(-1) * ft[norm_ft > 1e-8]
         # ft_bar = torch.minimum(self.mu * fn_bar / (norm_ft + 1e-8), torch.ones_like(norm_ft)).unsqueeze(-1) * ft
         ft_bar = (
-            torch.minimum(self.mu * fn_bar, norm_ft).unsqueeze(-1)
+            torch.minimum(
+                self._coefficient_for_rank(self._mu_device, 2) * fn_bar, norm_ft
+            ).unsqueeze(-1)
             * ft
             / (norm_ft.unsqueeze(-1) + 1e-8)
         )
@@ -250,52 +314,6 @@ class HydroSoftSensor:
         Mdilate = (dilate_scale * h * dvec * gaussian_exp).sum(dim=2)
 
         return Mdilate
-
-    def get_hydrosoft_displacement(
-        self, tactile_pts_elastomer, obj_pts_elastomer, obj_pts_sdf, reverse_z=False
-    ):
-        grasped_obj_pts_in_elastomer = obj_pts_elastomer  # (num_envs, num_pts, 3)
-
-        fbar = self.step_hydrosoft_forces(grasped_obj_pts_in_elastomer, obj_pts_sdf, reverse_z)
-
-        # assume fbar is just marker displacement from elastomer
-        affected_marker_positions_ = (
-            grasped_obj_pts_in_elastomer + fbar
-        )  # get markers affected during motion (num_envs, num_pts, 3)
-
-        # obj heights also acts as a mask because when not in contact, fbar is 0
-        obj_pts_height = fbar[:, :, self.normal_axis]  # (num_envs, num_pts)
-
-        # tactile_pts_elastomer: (num_envs, num_tactile_pts, 3)
-        num_envs, num_pts, _ = obj_pts_elastomer.shape
-        num_tactile_pts = tactile_pts_elastomer.shape[1]
-
-        tactile_pts_elastomer = tactile_pts_elastomer.unsqueeze(1).expand(
-            num_envs, num_pts, num_tactile_pts, 3
-        )  # (num_envs, num_pts, num_tactile_pts, 3)
-        affected_marker_positions = affected_marker_positions_.unsqueeze(2).expand(
-            num_envs, num_pts, num_tactile_pts, 3
-        )  # (num_envs, num_pts, num_tactile_pts, 3)
-        fbar = fbar.unsqueeze(2).expand(
-            num_envs, num_pts, num_tactile_pts, 3
-        )  # (num_envs, num_pts, num_tactile_pts, 3)
-        norm_elastomerpts_hydropts = torch.norm(
-            tactile_pts_elastomer - affected_marker_positions, dim=-1
-        )  # (num_envs, num_pts, num_tactile_pts)
-        lambda_s = self._coefficient_for_rank(self._lambda_s_device, 3)
-        shear_scale = self._coefficient_for_rank(self._shear_scale_device, 4)
-        gaussian_exp = (
-            torch.exp(-lambda_s * norm_elastomerpts_hydropts**2)
-            .unsqueeze(-1)
-            .expand(num_envs, num_pts, num_tactile_pts, 3)
-        )  # (num_envs, num_pts, num_tactile_pts)
-
-        h = obj_pts_height.unsqueeze(-1).unsqueeze(-1).expand(num_envs, num_pts, num_tactile_pts, 3)
-        Mshear = torch.sum(
-            shear_scale * h * -1 * fbar * gaussian_exp * (-1 if reverse_z else 1), dim=1
-        )  # (num_envs, num_tactile_pts, 3)
-
-        return Mshear, affected_marker_positions_
 
     def get_marker_displacement_from_force(
         self,
@@ -381,3 +399,10 @@ class HydroSoftSensor:
         )
         marker_displacement = Mdilate + Mshear
         return fbar, marker_displacement
+
+
+def _assert_async(condition: torch.Tensor, message: str) -> None:
+    assertion = getattr(torch, "_assert_async", None)
+    if not callable(assertion):
+        raise RuntimeError("Torch build does not provide asynchronous CUDA assertions")
+    assertion(condition, message)
