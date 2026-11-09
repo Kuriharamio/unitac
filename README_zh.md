@@ -52,13 +52,7 @@ sensor.reset(env_ids=[3, 7])
 sensor.close()
 ```
 
-`read()` 返回可复用缓冲区的视图。如需跨越下一次 `advance`、`reset`、`rebuild` 或 `close` 保存数据，请先复制。参见[架构与验证说明](docs/zh/architecture.md)和[压入与滑动示例](examples/press_slide.py)。
-
-运行示例并保存触觉场图像：
-
-```bash
-uv run --extra hydroshear --extra viz python examples/press_slide.py
-```
+`read()` 返回可复用缓冲区的视图。如需跨越下一次 `advance`、`reset`、`rebuild` 或 `close` 保存数据，请先复制。参见[架构与验证说明](docs/zh/architecture.md)。
 
 ## 开发
 

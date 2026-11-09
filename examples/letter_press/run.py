@@ -425,9 +425,16 @@ def run_interactive(args: argparse.Namespace) -> None:
         try:
             _reset(backend, sensor, initial_qpos, initial_qvel)
             viewer = mujoco.viewer.launch_passive(
-                render_model, render_data, key_callback=key_callback
+                render_model,
+                render_data,
+                key_callback=key_callback,
+                show_left_ui=False,
+                show_right_ui=False,
             )
             assert viewer is not None
+            with viewer.lock():
+                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+                viewer.cam.fixedcamid = render_model.camera("overview").id
             simulation_steps = 0
             frame_index = 0
             last_sensor_cycle = 0
@@ -480,7 +487,12 @@ def run_interactive(args: argparse.Namespace) -> None:
                     )
                     viewer.set_images(
                         (
-                            mujoco.MjrRect(max(0, viewport.width - width - 10), 10, width, height),
+                            mujoco.MjrRect(
+                                viewport.left + (viewport.width - width) // 2,
+                                viewport.bottom + (viewport.height - height) // 2,
+                                width,
+                                height,
+                            ),
                             panel,
                         )
                     )

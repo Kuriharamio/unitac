@@ -29,9 +29,12 @@ The HydroShear letter example uses the packaged `letter.STL` and GelSight Mini c
 Run with the bundled Taxim default:
 
 ```bash
-uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py \
-  --headless --frames 240 --output-dir outputs/letter_press
+uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py
 ```
+
+The interactive viewer opens on the overview camera with its left and right UI
+panels hidden; the tactile image is centered over the scene. Add `--headless`
+to record an MP4 instead.
 
 An optional external GelSight Mini profile is available for users who supply authorized TACSL files:
 
@@ -72,13 +75,7 @@ sensor.reset(env_ids=[3, 7])
 sensor.close()
 ```
 
-`read()` returns a view into a reusable buffer. Copy it before the next `advance`, `reset`, `rebuild`, or `close` if it must be retained. See [the architecture and evidence notes](docs/en/architecture.md) and the [press-and-slide example](examples/press_slide.py).
-
-Run the example and save its marker-field figure:
-
-```bash
-uv run --extra hydroshear --extra viz python examples/press_slide.py
-```
+`read()` returns a view into a reusable buffer. Copy it before the next `advance`, `reset`, `rebuild`, or `close` if it must be retained. See [the architecture and evidence notes](docs/en/architecture.md).
 
 Run the real MuJoCo backend integration sequence, or MJWarp when `mujoco_warp` is installed:
 
