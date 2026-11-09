@@ -205,8 +205,10 @@ def test_selector_on_another_cuda_device_is_rejected():
     sensor.materialize(make_scene())
     with pytest.raises(ValueError, match="expected cuda:0"):
         sensor.reset(torch.tensor([0], device="cuda:1"))
+    with cp.cuda.Device(1):
+        other_gpu_indices = cp.asarray([0], dtype=cp.int64)
     with pytest.raises(ValueError, match="expected cuda:0"):
-        sensor.reset(cp.asarray([0], dtype=cp.int64, device=cp.cuda.Device(1)))
+        sensor.reset(other_gpu_indices)
     sensor.close()
 
 
