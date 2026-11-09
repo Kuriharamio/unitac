@@ -14,7 +14,7 @@ requires-python = ">=3.10,<3.14"
 license-files = ["THIRD_PARTY_NOTICES.md", "licenses/HydroShear-MIT.txt"]
 dependencies = [
     "numpy>=1.24",
-    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@25559099a1eb580c3ba72a1a7e89d7738a5fc39d",
+    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@9756131512930454e063f27ae9db3f374f55f9b6",
 ]
 keywords = ["physics", "simulation", "robotics", "tactile"]
 classifiers = [

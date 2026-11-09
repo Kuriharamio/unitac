@@ -196,6 +196,42 @@ def test_materialize_uses_identity_poses_and_reset_enables_read_before_first_adv
     sensor.close()
 
 
+def test_visualization_snapshot_is_latest_copied_depth_and_marker_state():
+    sensor = create_tactile_sensor(
+        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=64)
+    )
+    sensor.materialize(make_scene())
+    position = np.asarray(
+        [[[0.0, 0.0, 0.001], [-0.004, 0.0, 0.0], [0.004, 0.0, 0.0]]],
+        dtype=np.float32,
+    )
+    quaternion = np.tile(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float32), (1, 3, 1))
+    sensor.update_pose(position, quaternion)
+    sensor.advance()
+
+    displacement = sensor.read()["displacement"].detach().cpu().numpy().copy()
+    snapshot = sensor.read_visualization_snapshot()
+    assert snapshot.env_id == 0
+    assert snapshot.generation == 1
+    assert snapshot.site_names == ("sensor0", "sensor1")
+    assert snapshot.marker_positions_mm.shape == (9, 7, 3)
+    assert snapshot.displacement_mm.shape == (2, 9, 7, 3)
+    assert snapshot.depth_mm.shape == (2, 175, 100)
+    np.testing.assert_allclose(snapshot.displacement_mm, displacement[0], rtol=0, atol=0)
+    assert np.any(snapshot.depth_mm < 0.0)
+    for array in (snapshot.marker_positions_mm, snapshot.displacement_mm, snapshot.depth_mm):
+        assert not array.flags.writeable
+
+    prior_depth = snapshot.depth_mm.copy()
+    sensor.reset()
+    reset_snapshot = sensor.read_visualization_snapshot()
+    assert reset_snapshot.generation == 2
+    np.testing.assert_array_equal(reset_snapshot.depth_mm, 0.0)
+    assert np.any(snapshot.depth_mm < 0.0)
+    np.testing.assert_array_equal(snapshot.depth_mm, prior_depth)
+    sensor.close()
+
+
 @pytest.mark.parametrize("failure_point", ["materialize", "rebuild"])
 def test_failed_materialization_releases_partial_device_resources(failure_point, monkeypatch):
     sensor = create_tactile_sensor(

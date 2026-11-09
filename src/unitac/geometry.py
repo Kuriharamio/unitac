@@ -85,10 +85,12 @@ def body_meshes(
                     geom_size = _uniform_geometry_row(
                         geometry_state.geom_sizes[:, geom_id], geom_name, "size"
                     )
+                geom_size = np.asarray(geom_size)
                 triangles = _primitive_triangles(
                     collision.scene.geom_types[geom_id],
                     geom_size,
                 )
+            geom_quat = np.asarray(geom_quat)
             triangles = _rotate(triangles, geom_quat)
             triangles += geom_pos
             parts.append(triangles.astype(np.float32, copy=False))

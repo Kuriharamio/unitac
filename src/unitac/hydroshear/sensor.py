@@ -27,6 +27,26 @@ _CAPABILITIES = TactileSensorCapabilities(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class HydroShearVisualizationSnapshot:
+    """Copied, CPU-side diagnostic data from one completed HydroShear state.
+
+    ``depth_mm`` is camera-grid indentation in millimetres, shaped
+    ``(sensor, 175, 100)``. Values are non-positive; zero means no indentation.
+    Rows increase along sensor-local +y (image down), columns along +x (image
+    right). ``displacement_mm`` is shaped ``(sensor, row, column, xyz)`` in
+    sensor-local millimetres. All returned arrays are independent, read-only
+    copies and remain valid after the next advance, reset, rebuild, or close.
+    """
+
+    env_id: int
+    generation: int
+    site_names: tuple[str, ...]
+    marker_positions_mm: np.ndarray
+    displacement_mm: np.ndarray
+    depth_mm: np.ndarray
+
+
 def _assert_async(condition: torch.Tensor, message: str) -> None:
     assertion = getattr(torch, "_assert_async", None)
     if not callable(assertion):
@@ -102,6 +122,9 @@ class HydroShearSensor(TactileSensor):
         self._height_cp: Any = None
         self._height_torch: Any = None
         self._depth_cp: Any = None
+        self._visualization_event: Any = None
+        self._marker_positions_mm: np.ndarray | None = None
+        self._observation_generation = 0
         self._depth_work: Any = None
         self._depth_renderer: Any = None
         self._marker_rows_cp: Any = None
@@ -227,6 +250,14 @@ class HydroShearSensor(TactileSensor):
         ) * self._config.spacing_mm[1] + self._config.center_offset_mm[1]
         yy, xx = np.meshgrid(y_mm / 1000.0, x_mm / 1000.0, indexing="ij")
         markers = np.stack((xx, yy, np.zeros_like(xx)), axis=-1).reshape(-1, 3)
+        self._marker_positions_mm = np.array(
+            markers.reshape(self._config.rows, self._config.cols, 3) * 1000.0,
+            dtype=np.float32,
+            copy=True,
+        )
+        with torch.cuda.device(self._torch_device):
+            self._visualization_event = torch.cuda.Event()
+        self._observation_generation = 0
         self._marker_cp = cp.broadcast_to(
             cp.asarray(markers, dtype=cp.float32)[None, :, :],
             (flat_batch, markers.shape[0], 3),
@@ -304,7 +335,10 @@ class HydroShearSensor(TactileSensor):
                 selected_rows = position.shape[0]
                 if selected_rows > self.num_envs:
                     raise ValueError("selected body poses cannot exceed num_envs")
-                mask_count = rows.device_selector.sum()
+                mask = rows.device_selector
+                if mask is None:
+                    raise RuntimeError("CUDA environment mask is missing its selector")
+                mask_count = mask.sum()
                 _assert_async(
                     mask_count == selected_rows,
                     "body pose row count must match the CUDA environment mask",
@@ -455,6 +489,8 @@ class HydroShearSensor(TactileSensor):
             self._output.copy_(displacement.reshape_as(self._output))
             self._record_stage("hydrosoft", start=False)
         self._has_observation = True
+        self._observation_generation += 1
+        self._visualization_event.record(torch.cuda.current_stream(self._torch_device))
 
     def enable_stage_timing(self, enabled: bool = True) -> None:
         """Enable optional CUDA-event timings used by the benchmark scripts."""
@@ -503,6 +539,47 @@ class HydroShearSensor(TactileSensor):
             raise RuntimeError("advance must complete before read")
         return {"displacement": self._output}
 
+    def read_visualization_snapshot(self, env_id: int = 0) -> HydroShearVisualizationSnapshot:
+        """Copy one environment's latest depth and marker state for visualization.
+
+        This explicit diagnostic path synchronizes the most recent sensor
+        operation and transfers only the selected environment to CPU. The
+        normal ``read``/training path never invokes it or performs image work.
+        Depth is reused from ``advance``; no SDF, depth render, or solver work
+        is repeated here.
+        """
+        self._require_materialized()
+        if not self._has_observation:
+            raise RuntimeError("advance or reset must complete before a visualization snapshot")
+        if isinstance(env_id, bool) or not isinstance(env_id, (int, np.integer)):
+            raise TypeError("env_id must be an integer")
+        env_id = int(env_id)
+        if not 0 <= env_id < self.num_envs:
+            raise IndexError(f"env_id must be in [0, {self.num_envs})")
+        scene = self._scene
+        marker_positions = self._marker_positions_mm
+        event = self._visualization_event
+        if scene is None or marker_positions is None or event is None:
+            raise RuntimeError("HydroShear visualization state is unavailable")
+
+        event.synchronize()
+        with self._cp.cuda.Device(self._device_id):
+            depth = self._cp.asnumpy(
+                self._depth_cp.reshape(self.num_envs, len(self._pad_body_ids), 175, 100)[env_id]
+            )
+        displacement = self._output[env_id].detach().cpu().numpy().copy()
+        marker_copy = marker_positions.copy()
+        for array in (depth, displacement, marker_copy):
+            array.setflags(write=False)
+        return HydroShearVisualizationSnapshot(
+            env_id=env_id,
+            generation=self._observation_generation,
+            site_names=tuple(frame.site_name for frame in scene.sensor_frames),
+            marker_positions_mm=marker_copy,
+            displacement_mm=displacement,
+            depth_mm=depth,
+        )
+
     def reset(self, env_ids: Sequence[int] | Any | None = None) -> None:
         self._require_materialized()
         cp = self._cp
@@ -517,9 +594,12 @@ class HydroShearSensor(TactileSensor):
                 depth[...] = 0.0
                 self._output.zero_()
             elif rows.kind == "mask":
-                mask = cp.from_dlpack(rows.device_selector)
+                selector = rows.device_selector
+                if selector is None:
+                    raise RuntimeError("CUDA environment mask is missing its selector")
+                mask = cp.from_dlpack(selector)
                 cp.copyto(depth, 0.0, where=mask[:, None, None, None])
-                output_mask = rows.device_selector[:, None, None, None, None]
+                output_mask = selector[:, None, None, None, None]
                 self._output.masked_fill_(output_mask, 0.0)
             else:
                 selector = _cupy_selector(rows, self._torch_device, cp)
@@ -531,6 +611,9 @@ class HydroShearSensor(TactileSensor):
                 )
                 output_rows.index_fill_(0, pad_rows, 0.0)
         self._has_observation = True
+        self._observation_generation += 1
+        if self._visualization_event is not None:
+            self._visualization_event.record(torch.cuda.current_stream(self._torch_device))
 
     def close(self) -> None:
         if self._closed:
@@ -562,6 +645,7 @@ class HydroShearSensor(TactileSensor):
             "_height_cp",
             "_height_torch",
             "_depth_cp",
+            "_visualization_event",
             "_depth_work",
             "_depth_renderer",
             "_marker_rows_cp",
@@ -576,6 +660,8 @@ class HydroShearSensor(TactileSensor):
         self._materialized = False
         self._pose_ready = False
         self._has_observation = False
+        self._marker_positions_mm = None
+        self._observation_generation = 0
         self._output_specs = ()
         self._stage_events.clear()
 

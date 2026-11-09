@@ -1,0 +1,53 @@
+<mujoco model="unitac_hydroshear_letter_press">
+  <compiler angle="radian" meshdir="."/>
+  <option timestep="0.002" gravity="0 0 0" integrator="implicitfast"/>
+  <visual>
+    <global offwidth="1280" offheight="720"/>
+    <map znear="0.001" zfar="5"/>
+    <quality shadowsize="2048"/>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.7 0.7 0.7"/>
+  </visual>
+  <default>
+    <joint damping="0.4" armature="0.002"/>
+    <geom friction="0.8 0.01 0.001" condim="4"/>
+  </default>
+  <asset>
+    <mesh name="gelsight_mini_gel" file="gsmini_elastomer_collision_512.obj"/>
+    <mesh name="letter_mesh" file="letter.STL"/>
+    <material name="gel_material" rgba="0.12 0.35 0.60 0.82"/>
+    <material name="letter_material" rgba="0.90 0.30 0.10 1"/>
+  </asset>
+  <worldbody>
+    <light name="key" pos="0.04 -0.04 0.10" dir="-0.25 0.25 -1" diffuse="0.9 0.9 0.9"/>
+    <light name="fill" pos="-0.05 0.03 0.06" dir="0.3 -0.2 -1" diffuse="0.35 0.4 0.55"/>
+    <camera name="overview" pos="0.045 -0.065 0.050" xyaxes="0.82 0.57 0 -0.25 0.36 0.90" fovy="38"/>
+
+    <body name="pad" pos="0 0 0">
+      <geom name="gel_collision" type="mesh" mesh="gelsight_mini_gel"
+            pos="0.0005 0.05975 0.00725" material="gel_material"
+            contype="1" conaffinity="1" solref="0.05 1" solimp="0.7 0.95 0.005"/>
+      <geom name="pad_support" type="box" pos="0 0 -0.007"
+            size="0.012 0.014 0.003" rgba="0.16 0.20 0.25 1"
+            contype="0" conaffinity="0"/>
+      <site name="gel_surface" pos="0 0 0" size="0.001" rgba="0 1 0 0"/>
+    </body>
+
+    <body name="indenter" pos="0 0 0.0118">
+      <joint name="press_joint" type="slide" axis="0 0 1"
+             range="-0.003 0.001" limited="true"/>
+      <joint name="rotate_joint" type="hinge" axis="0 0 1"
+             range="-0.6 0.6" limited="true"/>
+      <geom name="letter_geom" type="mesh" mesh="letter_mesh"
+            quat="0.70710678 0.70710678 0 0" material="letter_material"
+            mass="0.05" contype="1" conaffinity="1"
+            solref="0.05 1" solimp="0.7 0.95 0.005"/>
+      <site name="letter_center" size="0.001" rgba="0 1 0 0"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="press_actuator" joint="press_joint" kp="30000" kv="120"
+              ctrlrange="-0.002 0" ctrllimited="true"/>
+    <position name="rotate_actuator" joint="rotate_joint" kp="30000" kv="120"
+              ctrlrange="0 0.5235987756" ctrllimited="true"/>
+  </actuator>
+</mujoco>
