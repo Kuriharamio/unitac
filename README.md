@@ -20,23 +20,27 @@ git clone --recurse-submodules https://github.com/Kuriharamio/UniTac.git
 uv sync --extra hydroshear --extra mujoco --extra viz
 ```
 
-HydroShear requires CUDA for signed-distance and depth computation. MuJoCo integration examples also need the `mujoco` extra. It accepts NumPy, CPU Torch, and CUDA Torch body poses, and returns a sensor-owned CUDA Torch displacement field. Gel triangles are supplied in the sensor frame and in metres. The test suite bundles the MIT-licensed original 512-triangle collision mesh; no calibration arrays or images are bundled.
+HydroShear requires CUDA for signed-distance and depth computation. MuJoCo integration examples also need the `mujoco` extra. It accepts NumPy, CPU Torch, and CUDA Torch body poses, and returns a sensor-owned CUDA Torch displacement field. Gel triangles are supplied in the sensor frame and in metres. The letter press example bundles the MIT-licensed original 512-triangle collision mesh and the official Taxim calibration described in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Letter press visualization
 
-The HydroShear letter example uses the packaged `letter.STL` and GelSight Mini collision mesh in a real UniSim MuJoCo simulation. It runs a repeatable approach, press, hold, 30-degree rotation, lift, and return sequence. `Space` pauses or resumes, `R` restarts, `N` or `.` takes one physics step, and `1`/`2`/`3` select calibrated RGB, marker displacement, or depth. `--headless` records an MP4 and writes the scene image, tactile image, and per-frame metrics.
+The HydroShear letter example uses the packaged `letter.STL` and GelSight Mini collision mesh in a real UniSim MuJoCo simulation. It runs a repeatable approach, press, hold, 30-degree rotation, lift, and return sequence. The default **Taxim-calibrated GelSight RGB** view uses Taxim's native 640×480, 0.0295 mm/pixel, 125-bin calibration; it is not genuine GelSight Mini-calibrated RGB. HydroShear depth and marker displacement are mapped in millimetres into the calibrated image plane without changing the solver or gel geometry. The default marker dots and arrows are a synthetic overlay driven by HydroShear's displacement output. `Space` pauses or resumes, `R` restarts, `N` or `.` takes one physics step, and `1`/`2`/`3` select RGB, marker displacement, or depth. `--headless` records an MP4 and writes the scene image, tactile image, and per-frame metrics.
 
-The three TACSL calibration files are not packaged because their redistribution license has not been established. Supply an authorized directory containing the files listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md):
+Run with the bundled Taxim default:
 
 ```bash
 uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py \
-  --calibration-dir /path/to/authorized/gs_mini_data
-uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py \
-  --headless --frames 240 --calibration-dir /path/to/authorized/gs_mini_data \
-  --output-dir outputs/letter_press
+  --headless --frames 240 --output-dir outputs/letter_press
 ```
 
-The display arrow gain changes only the rendered displacement vectors. The copied raw marker field and depth snapshot remain tied to the latest completed `advance()`; ordinary `read()` performs no visualization work.
+An optional external GelSight Mini profile is available for users who supply authorized TACSL files:
+
+```bash
+uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py \
+  --profile gelsight_mini --calibration-dir /path/to/authorized/gs_mini_data
+```
+
+That profile uses captured marker dots from its calibration imagery and adds synthetic arrows from HydroShear displacement. The display arrow gain changes only rendered vectors. The copied raw marker field and depth snapshot remain tied to the latest completed `advance()`; ordinary `read()` performs no visualization work.
 
 ## Use
 

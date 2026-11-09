@@ -31,10 +31,11 @@ _CAPABILITIES = TactileSensorCapabilities(
 class HydroShearVisualizationSnapshot:
     """Copied, CPU-side diagnostic data from one completed HydroShear state.
 
-    ``depth_mm`` is camera-grid indentation in millimetres, shaped
+    ``depth_mm`` is pinhole-camera raster indentation in millimetres, shaped
     ``(sensor, 175, 100)``. Values are non-positive; zero means no indentation.
     Rows increase along sensor-local +y (image down), columns along +x (image
-    right). ``displacement_mm`` is shaped ``(sensor, row, column, xyz)`` in
+    right). Renderers project this view into their calibration's physical
+    pixel grid. ``displacement_mm`` is shaped ``(sensor, row, column, xyz)`` in
     sensor-local millimetres. All returned arrays are independent, read-only
     copies and remain valid after the next advance, reset, rebuild, or close.
     """

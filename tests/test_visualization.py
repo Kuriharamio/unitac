@@ -15,7 +15,7 @@ def _new_visualizer(**kwargs):
     return HydroShearVisualizer(**kwargs)
 
 
-def _calibration_dir(root: Path) -> tuple[Path, np.ndarray]:
+def _gelsight_mini_calibration_dir(root: Path) -> tuple[Path, np.ndarray]:
     directory = root / "calibration"
     directory.mkdir()
     background = np.full((320, 240, 3), (80, 120, 150), dtype=np.uint8)
@@ -25,7 +25,8 @@ def _calibration_dir(root: Path) -> tuple[Path, np.ndarray]:
             center = (20 + col * 33, 20 + row * 35)
             cv2.circle(markers, center, 5, (18, 20, 22), -1)
     cv2.imwrite(
-        str(directory / "mmint_gs_mini_2D9C-N227_07072025_bg_R_no_dots.png"), background[..., ::-1]
+        str(directory / "mmint_gs_mini_2D9C-N227_07072025_bg_R_no_dots.png"),
+        background[..., ::-1],
     )
     cv2.imwrite(str(directory / "mmint_bg.jpg"), markers[..., ::-1])
     grad_r = np.zeros((125, 125, 6), dtype=np.float32)
@@ -70,39 +71,71 @@ def _snapshot(depth: np.ndarray, displacement: np.ndarray) -> object:
     )
 
 
-def test_calibrated_rgb_restores_dot_background_and_changes_under_contact(tmp_path: Path) -> None:
-    calibration_dir, marker_background = _calibration_dir(tmp_path)
+def test_bundled_taxim_profile_is_native_and_labels_synthetic_markers() -> None:
+    visualizer = _new_visualizer(mode="rgb")
+    assert visualizer.profile == "taxim"
+    assert visualizer.renderer.width == 640
+    assert visualizer.renderer.height == 480
+    assert visualizer.renderer.pixel_scale_mm == pytest.approx(0.0295)
+    assert visualizer.renderer.bins == 125
+    assert visualizer.renderer.background.shape == (480, 640, 3)
+
     displacement = np.zeros((9, 7, 3), dtype=np.float32)
     source = _SnapshotSource(_snapshot(np.zeros((175, 100), dtype=np.float32), displacement))
-    visualizer = _new_visualizer(calibration_dir=calibration_dir, mode="rgb")
-    no_contact = visualizer.update(source)
-    np.testing.assert_array_equal(no_contact.image_rgb, visualizer.renderer.marker_background)
-    np.testing.assert_array_equal(no_contact.raw_displacement_mm, 0.0)
-
-    source.snapshot = _snapshot(np.full((175, 100), -0.8, dtype=np.float32), displacement)
-    contact = visualizer.update(source)
-    assert np.any(contact.image_rgb != visualizer.renderer.marker_background)
-    assert contact.peak_depth_mm == pytest.approx(-0.8)
-    assert source.read_count == 2
-    assert marker_background.shape == (320, 240, 3)
+    frame = visualizer.update(source)
+    assert frame.calibration_label == "Taxim-calibrated GelSight RGB"
+    assert frame.marker_label == "Synthetic marker overlay"
+    assert frame.image_rgb.shape == (480, 640, 3)
+    assert not frame.image_rgb.flags.writeable
+    assert source.read_count == 1
     visualizer.close()
 
 
-def test_display_gain_changes_only_display_displacement(tmp_path: Path) -> None:
-    calibration_dir, _ = _calibration_dir(tmp_path)
+def test_taxim_projection_preserves_mm_per_pixel() -> None:
+    renderer = _new_visualizer().renderer
+    source_depth = np.broadcast_to(-np.arange(100, dtype=np.float32) * 0.001, (175, 100)).copy()
+    native = renderer.depth_native_mm(source_depth)
+    center_y = renderer.height // 2
+    center_x = renderer.width // 2
+    shift = 100
+    native_delta = native[center_y, center_x + shift] - native[center_y, center_x]
+    target_mm = shift * renderer.pixel_scale_mm
+    source_width_mm = 2 * (0.0267 * 1000 - 0.05) * np.tan(np.deg2rad(72.146676) / 2) * 240 / 320
+    expected_delta = -0.001 * target_mm / source_width_mm * 100
+    assert native_delta == pytest.approx(expected_delta, abs=0.002)
+
+
+def test_taxim_rgb_uses_contact_and_actual_displacement() -> None:
+    displacement = np.zeros((9, 7, 3), dtype=np.float32)
+    depth = np.zeros((175, 100), dtype=np.float32)
+    depth[55:120, 26:70] = -0.8
+    source = _SnapshotSource(_snapshot(depth, displacement))
+    visualizer = _new_visualizer(mode="rgb")
+    still = visualizer.update(source)
+
+    displaced = displacement.copy()
+    displaced[4, 3, 0] = 0.2
+    source.snapshot = _snapshot(depth, displaced)
+    moving = visualizer.update(source)
+    assert np.any(still.image_rgb != moving.image_rgb)
+    assert moving.peak_depth_mm == pytest.approx(-0.8)
+    np.testing.assert_array_equal(moving.raw_displacement_mm, displaced)
+    assert source.read_count == 2
+    visualizer.close()
+
+
+def test_display_gain_changes_only_display_displacement() -> None:
     depth = np.full((175, 100), -0.5, dtype=np.float32)
     displacement = np.zeros((9, 7, 3), dtype=np.float32)
     displacement[..., 0] = 0.1
     displacement[..., 1] = -0.05
     source = _SnapshotSource(_snapshot(depth, displacement))
-    visualizer = _new_visualizer(
-        calibration_dir=calibration_dir, mode="displacement", display_gain=3.0
-    )
+    visualizer = _new_visualizer(mode="displacement", display_gain=3.0)
     frame = visualizer.update(source)
     np.testing.assert_array_equal(frame.raw_displacement_mm, displacement)
     np.testing.assert_array_equal(frame.display_displacement_mm, displacement * 3.0)
     np.testing.assert_array_equal(source.snapshot.displacement_mm[0], displacement)
-    assert frame.image_rgb.shape == (320, 240, 3)
+    assert frame.image_rgb.shape == (480, 640, 3)
     visualizer.set_display_gain(0.0)
     zero_gain = visualizer.update(source)
     np.testing.assert_array_equal(zero_gain.raw_displacement_mm, displacement)
@@ -111,15 +144,36 @@ def test_display_gain_changes_only_display_displacement(tmp_path: Path) -> None:
     visualizer.close()
 
 
-def test_depth_mode_selects_signed_depth_view(tmp_path: Path) -> None:
-    calibration_dir, _ = _calibration_dir(tmp_path)
+def test_depth_mode_maps_signed_depth_to_taxim_grid() -> None:
     depth = np.zeros((175, 100), dtype=np.float32)
     depth[60:100, 30:70] = -1.25
     source = _SnapshotSource(_snapshot(depth, np.zeros((9, 7, 3), dtype=np.float32)))
-    visualizer = _new_visualizer(calibration_dir=calibration_dir, mode="depth")
+    visualizer = _new_visualizer(mode="depth")
     frame = visualizer.update(source, pad="left_gel")
     assert frame.mode == "depth"
     assert frame.pad_name == "left_gel"
     assert frame.peak_depth_mm == pytest.approx(-1.25)
-    assert frame.image_rgb.shape == (320, 240, 3)
+    assert frame.image_rgb.shape == (480, 640, 3)
     visualizer.close()
+
+
+def test_external_gelsight_profile_uses_authorized_camera_marker_assets(
+    tmp_path: Path,
+) -> None:
+    calibration_dir, marker_background = _gelsight_mini_calibration_dir(tmp_path)
+    source = _SnapshotSource(
+        _snapshot(np.zeros((175, 100), dtype=np.float32), np.zeros((9, 7, 3), dtype=np.float32))
+    )
+    visualizer = _new_visualizer(
+        profile="gelsight_mini", calibration_dir=calibration_dir, mode="rgb"
+    )
+    frame = visualizer.update(source)
+    assert frame.calibration_label == "External GelSight Mini calibration"
+    assert frame.marker_label == "Calibrated camera dots + synthetic arrows"
+    assert frame.image_rgb.shape == marker_background.shape
+    visualizer.close()
+
+
+def test_external_gelsight_profile_requires_explicit_authorized_directory() -> None:
+    with pytest.raises(ValueError, match="requires an authorized calibration_dir"):
+        _new_visualizer(profile="gelsight_mini")

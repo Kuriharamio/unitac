@@ -183,22 +183,38 @@ def _sync_render_data(model: object, data: object, backend: object, simulation_s
     mujoco.mj_forward(model, data)
 
 
-def _tactile_panel(image_rgb: np.ndarray, mode: str, metrics: dict[str, float]) -> np.ndarray:
+def _tactile_panel(
+    image_rgb: np.ndarray,
+    mode: str,
+    metrics: dict[str, float],
+    calibration_label: str,
+    marker_label: str,
+) -> np.ndarray:
     import cv2
 
     panel = np.full((720, 320, 3), (25, 28, 33), dtype=np.uint8)
     cv2.putText(
         panel,
-        f"GelSight Mini | {mode.upper()}",
-        (16, 36),
+        f"{calibration_label} | {mode.upper()}",
+        (10, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
-        0.62,
+        0.36,
         (245, 245, 245),
         1,
         cv2.LINE_AA,
     )
+    cv2.putText(
+        panel,
+        marker_label,
+        (12, 51),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.34,
+        (80, 225, 255),
+        1,
+        cv2.LINE_AA,
+    )
     image = cv2.resize(image_rgb, (300, 400), interpolation=cv2.INTER_AREA)
-    panel[52:452, 10:310] = image
+    panel[64:464, 10:310] = image
     lines = (
         f"Contact pixels: {metrics['contact_pixels']:.0f}",
         f"Peak depth: {metrics['peak_depth_mm']:.3f} mm",
@@ -249,6 +265,7 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
     visualizer = create_visualizer(
         "hydroshear",
         mode=args.mode,
+        profile=args.profile,
         calibration_dir=args.calibration_dir,
         display_gain=args.display_gain,
     )
@@ -302,7 +319,13 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
                         _sync_render_data(render_model, render_data, backend, simulation_steps)
                         renderer.update_scene(render_data, camera="overview")
                         scene_image = renderer.render().copy()
-                        panel = _tactile_panel(snapshot_frame.image_rgb, args.mode, metrics)
+                        panel = _tactile_panel(
+                            snapshot_frame.image_rgb,
+                            args.mode,
+                            metrics,
+                            snapshot_frame.calibration_label,
+                            snapshot_frame.marker_label,
+                        )
                         combined = _combined_frame(scene_image, panel, phase, sim_time)
                         writer.write(cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
                         if frame_index == 0:
@@ -355,7 +378,13 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
         visualizer.close()
     if not output_video.is_file() or output_video.stat().st_size == 0:
         raise RuntimeError(f"MP4 recording failed: {output_video}")
-    return {"video": str(output_video), "metrics": str(metrics_path), "frames": args.frames}
+    return {
+        "video": str(output_video),
+        "metrics": str(metrics_path),
+        "frames": args.frames,
+        "calibration": visualizer.renderer.calibration_label,
+        "marker_overlay": visualizer.renderer.marker_label,
+    }
 
 
 def run_interactive(args: argparse.Namespace) -> None:
@@ -367,6 +396,7 @@ def run_interactive(args: argparse.Namespace) -> None:
     visualizer = create_visualizer(
         "hydroshear",
         mode=args.mode,
+        profile=args.profile,
         calibration_dir=args.calibration_dir,
         display_gain=args.display_gain,
     )
@@ -471,6 +501,12 @@ def run_interactive(args: argparse.Namespace) -> None:
                         ),
                         (
                             font,
+                            mujoco.mjtGridPos.mjGRID_BOTTOMRIGHT,
+                            tactile_frame.calibration_label,
+                            tactile_frame.marker_label,
+                        ),
+                        (
+                            font,
                             mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
                             f"Peak depth: {tactile_frame.peak_depth_mm:.3f} mm",
                             f"Peak marker: {tactile_frame.peak_displacement_mm:.3f} mm",
@@ -508,9 +544,15 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/letter_press"))
     parser.add_argument(
+        "--profile",
+        choices=("taxim", "gelsight_mini"),
+        default="taxim",
+        help="calibrated image profile; Taxim is bundled and is the default",
+    )
+    parser.add_argument(
         "--calibration-dir",
         type=Path,
-        help="directory with the three authorized GelSight Mini calibration files",
+        help="authorized GelSight Mini files; requires --profile gelsight_mini",
     )
     parser.add_argument("--mode", choices=("rgb", "displacement", "depth"), default="rgb")
     parser.add_argument(
@@ -527,6 +569,10 @@ def main() -> None:
         parser.error("--frames must be a positive integer")
     if args.fps <= 0:
         parser.error("--fps must be positive")
+    if args.profile == "gelsight_mini" and args.calibration_dir is None:
+        parser.error("--profile gelsight_mini requires --calibration-dir")
+    if args.profile == "taxim" and args.calibration_dir is not None:
+        parser.error("--calibration-dir requires --profile gelsight_mini")
     if args.headless:
         args.frames = 300 if args.frames is None else args.frames
         print(json.dumps(run_headless(args), indent=2))

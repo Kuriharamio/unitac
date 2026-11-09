@@ -11,7 +11,11 @@ version = "0.1.0"
 description = "Tactile simulation plugin for UniSim"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
-license-files = ["THIRD_PARTY_NOTICES.md", "licenses/HydroShear-MIT.txt"]
+license-files = [
+    "THIRD_PARTY_NOTICES.md",
+    "licenses/HydroShear-MIT.txt",
+    "licenses/Taxim-MIT.txt",
+]
 dependencies = [
     "numpy>=1.24",
     "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@9756131512930454e063f27ae9db3f374f55f9b6",

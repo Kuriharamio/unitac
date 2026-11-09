@@ -20,10 +20,10 @@ SHA256 `562292fa4e38d310ecd07505ab1fe08424d62e029d4e7c625dc6a6980b070e7a`.
 The source repository's MIT license applies; the license text is included in
 `licenses/HydroShear-MIT.txt`.
 
-The GelSight Mini calibration archive and background images are not bundled:
-the HydroShear source repository directs users to obtain these TACSL assets
-separately, and no redistribution license for the three files has been
-verified. The files were introduced at HydroShear commit
+The TACSL GelSight Mini calibration archive and background images are not
+bundled. The HydroShear source repository directs users to obtain these assets
+separately, and no redistribution license for the files has been verified.
+The files were introduced at HydroShear commit
 `460c94aea77a5b5e862962f7e228e025e5ac71a6` on `perf/sdf`:
 
 - `polycalib.npz`, SHA256
@@ -34,6 +34,25 @@ verified. The files were introduced at HydroShear commit
   `1da75bd77c00a41b18e6de974bbcd4f6df532c07d6a9e0e618597467687bdd55`.
 
 The [TACSL setup instructions](https://github.com/isaac-sim/IsaacGymEnvs/blob/tacsl/isaacgymenvs/tacsl_sensors/install/tacsl_setup.md)
-instruct users to download GelSight assets separately. Supply an authorized
-directory containing the three files above at runtime. Production callers
-may provide any closed gel triangle mesh they are authorized to use.
+instruct users to download GelSight assets separately. The optional
+`gelsight_mini` visualization profile accepts an external directory containing
+these three files only when the user is authorized to use them.
+
+The bundled HydroShear RGB visualization uses the original MIT-licensed
+[Taxim](https://github.com/Robo-Touch/Taxim) calibration assets from upstream
+commit `4936657a42e00f09a94301111830250ef2c96a89`. Copyright (c) 2021
+CMURoboTouch. The full license is included at
+`src/unitac/hydroshear/assets/taxim/LICENSE` and `licenses/Taxim-MIT.txt`.
+
+- `polycalib.npz`, SHA256
+  `6ea61fd6a8dd1b32ddccdf0727b5abbfcdc128942ccc81760fea0196c191409a`.
+- `dataPack.npz` (the renderer reads `f0`), SHA256
+  `090d348cb7f5ea5ad1d68c147580048780f507bc0e43aa656c3dbf4d667af5c6`.
+- `LICENSE`, SHA256
+  `a8e3823551e9586dcaa243d33dbb670529bef0b08150d0a6c4d8f6e8134def56`.
+
+Taxim's native settings are 640×480 pixels, 0.0295 mm/pixel, and 125 lookup
+bins. The RGB panel is labelled “Taxim-calibrated GelSight RGB”. Its marker
+dots are synthetic overlays driven by HydroShear displacement; they do not
+originate in the bundled calibrated camera image. Production callers may
+provide any closed gel triangle mesh they are authorized to use.
