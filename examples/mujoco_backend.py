@@ -1,4 +1,4 @@
-"""Run HydroShear from public UniSim MuJoCo geometry, frame, and pose APIs."""
+"""Run HydroShear from public UniSim MuJoCo or MJWarp APIs."""
 
 from __future__ import annotations
 
@@ -111,21 +111,27 @@ def _hydro_config() -> dict[str, Any]:
     }
 
 
-def run() -> dict[str, Any]:
+def run(backend_type: str = "mujoco") -> dict[str, Any]:
     if not torch.cuda.is_available():
-        raise RuntimeError("the real MuJoCo HydroShear example requires CUDA")
+        raise RuntimeError("the real backend HydroShear example requires CUDA")
+    if backend_type not in ("mujoco", "mjwarp"):
+        raise ValueError("backend_type must be 'mujoco' or 'mjwarp'")
     with tempfile.TemporaryDirectory(prefix="unitac-mujoco-") as temporary:
         xml_path = Path(temporary) / "scene.xml"
         _model_xml(xml_path)
+        backend_kwargs: dict[str, Any] = {
+            "base_name": "object",
+            "body_state_required": True,
+            "add_body_sensors": True,
+        }
+        if backend_type == "mujoco":
+            backend_kwargs["tracked_body_names"] = BODY_NAMES
         backend = create_backend(
-            "mujoco",
+            backend_type,
             SceneCfg(model_file=str(xml_path)),
             num_envs=1,
             sim_dt=0.002,
-            base_name="object",
-            body_state_required=True,
-            add_body_sensors=True,
-            tracked_body_names=BODY_NAMES,
+            **backend_kwargs,
         )
         sensor = None
         pose_plan = None
@@ -167,13 +173,14 @@ def run() -> dict[str, Any]:
                 "unitac", model="hydroshear", num_envs=1, config=_hydro_config()
             )
             sensor.materialize(scene)
-            pose_plan = backend.bind_host_bridge_io(
-                TensorIOSpec(
-                    body_names=BODY_NAMES,
-                    body_fields=("pos_w", "quat_w"),
-                    device="cpu",
+            if backend_type == "mujoco":
+                pose_plan = backend.bind_host_bridge_io(
+                    TensorIOSpec(
+                        body_names=BODY_NAMES,
+                        body_fields=("pos_w", "quat_w"),
+                        device="cpu",
+                    )
                 )
-            )
             pad_bindings = tuple(backend.bind_mocap_pose(name) for name in BODY_NAMES[1:3])
             mocap_poses = (
                 np.asarray([[-0.004, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]], dtype=np.float64),
@@ -187,22 +194,33 @@ def run() -> dict[str, Any]:
             )
             outputs: dict[str, np.ndarray] = {}
             observed_body_names: tuple[str, ...] | None = None
+            state_device = "cpu" if backend_type == "mujoco" else "cuda:0"
             for action, object_position in actions:
-                state = backend.get_state_views("qpos", device="cpu")
+                state = backend.get_state_views("qpos", device=state_device)
                 qpos = state["qpos"].clone()
-                qpos[0, :3] = torch.tensor(object_position, dtype=torch.float32)
-                qpos[0, 3:7] = torch.tensor([1.0, 0.0, 0.0, 0.0])
-                qvel = torch.zeros((1, backend.nv), dtype=torch.float32)
+                qpos[0, :3] = torch.tensor(object_position, dtype=torch.float32, device=qpos.device)
+                qpos[0, 3:7] = torch.tensor(
+                    [1.0, 0.0, 0.0, 0.0], dtype=torch.float32, device=qpos.device
+                )
+                qvel = torch.zeros((1, backend.nv), dtype=torch.float32, device=qpos.device)
                 backend.set_state_tensor(
-                    torch.tensor([0], dtype=torch.int64), qpos.contiguous(), qvel
+                    torch.tensor([0], dtype=torch.int64, device=qpos.device),
+                    qpos.contiguous(),
+                    qvel,
                 )
                 for binding, poses in zip(pad_bindings, mocap_poses, strict=True):
                     binding.write(np.asarray([0], dtype=np.int64), poses)
                 backend.step_tensor(
-                    torch.zeros((1, backend.num_actuators), dtype=torch.float32), nsteps=1
+                    torch.zeros(
+                        (1, backend.num_actuators), dtype=torch.float32, device=qpos.device
+                    ),
+                    nsteps=1,
                 )
-                pose_plan.read_state_sensors()
-                body_poses = pose_plan.get_body_pose_views()
+                if backend_type == "mujoco":
+                    pose_plan.read_state_sensors()
+                    body_poses = pose_plan.get_body_pose_views()
+                else:
+                    body_poses = backend.get_tracked_body_views(BODY_NAMES, device="cuda:0")
                 if observed_body_names is None:
                     observed_body_names = body_poses.body_names
                 if body_poses.body_names != BODY_NAMES:
@@ -233,7 +251,7 @@ def run() -> dict[str, Any]:
                 raise AssertionError("+X object slide did not produce a +X sensor-local response")
 
             return {
-                "backend": "mujoco",
+                "backend": backend_type,
                 "body_names": collision.scene.body_names,
                 "pose_body_names": observed_body_names,
                 "geom_names": collision.geom_names,
@@ -273,9 +291,10 @@ def run() -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--backend", choices=("mujoco", "mjwarp"), default="mujoco")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = run()
+    result = run(args.backend)
     rendered = json.dumps(result, indent=2)
     if args.output is None:
         print(rendered)

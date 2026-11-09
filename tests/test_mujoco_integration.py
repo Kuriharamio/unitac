@@ -8,9 +8,12 @@ import torch
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="HydroShear requires CUDA")
-def test_real_unisim_mujoco_backend_drives_tactile_scene_and_pose_inputs():
+@pytest.mark.parametrize("backend_type", ["mujoco", "mjwarp"])
+def test_real_unisim_backend_drives_tactile_scene_and_pose_inputs(backend_type):
     pytest.importorskip("mujoco")
     pytest.importorskip("mjbatch")
+    if backend_type == "mjwarp":
+        pytest.importorskip("mujoco_warp")
     path = Path(__file__).parents[1] / "examples" / "mujoco_backend.py"
     spec = importlib.util.spec_from_file_location("unitac_mujoco_example", path)
     if spec is None or spec.loader is None:
@@ -18,9 +21,9 @@ def test_real_unisim_mujoco_backend_drives_tactile_scene_and_pose_inputs():
     example = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(example)
 
-    result = example.run()
+    result = example.run(backend_type)
 
-    assert result["backend"] == "mujoco"
+    assert result["backend"] == backend_type
     assert result["body_names"] == ("object", "left_pad", "right_pad", "static_fixture")
     assert result["pose_body_names"] == result["body_names"]
     assert "object_mesh_geom" in result["selected_object_geoms"]

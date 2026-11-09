@@ -46,7 +46,7 @@ sensor = create_tactile_sensor(
 )
 sensor.materialize(scene_description)
 sensor.update_pose(body_pos, body_quat)  # world metres and unit wxyz
-sensor.advance()                         # one model step; history advances once
+sensor.advance()  # one model step; history advances once
 observation = sensor.read()["displacement"]
 sensor.reset(env_ids=[3, 7])
 sensor.close()
@@ -60,10 +60,11 @@ Run the example and save its marker-field figure:
 uv run --extra hydroshear --extra viz python examples/press_slide.py
 ```
 
-Run the real MuJoCo backend integration sequence:
+Run the real MuJoCo backend integration sequence, or MJWarp when `mujoco_warp` is installed:
 
 ```bash
 uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
+uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py --backend mjwarp
 ```
 
 ## Development
