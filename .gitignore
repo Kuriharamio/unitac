@@ -7,4 +7,5 @@ __pycache__/
 *.py[cod]
 dist/
 build/
+outputs/
 *.egg-info/

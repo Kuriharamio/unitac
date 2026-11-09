@@ -342,9 +342,7 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
                             )
                             cv2.imwrite(
                                 str(args.output_dir / f"tactile_{args.mode}_{suffix}.png"),
-                                cv2.cvtColor(
-                                    snapshot_frame.image_rgb, cv2.COLOR_RGB2BGR
-                                ),
+                                cv2.cvtColor(snapshot_frame.image_rgb, cv2.COLOR_RGB2BGR),
                             )
                             saved_phases.add(suffix)
             finally:

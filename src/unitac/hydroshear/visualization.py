@@ -82,9 +82,7 @@ class GelSightMiniRenderer:
             self._load_files(*paths)
         else:
             package_assets = (
-                resources.files("unitac.hydroshear")
-                .joinpath("assets")
-                .joinpath("gelsight_mini")
+                resources.files("unitac.hydroshear").joinpath("assets").joinpath("gelsight_mini")
             )
             missing = [
                 name for name in _CALIBRATION_FILES if not package_assets.joinpath(name).is_file()
