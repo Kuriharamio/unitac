@@ -6,11 +6,11 @@ The `unisim` package owns the model-neutral `TactileSensor` contract and lazy pl
 
 ## Install
 
-The package is not published on PyPI yet. Install from the Phase 2 branch; the base import stays lazy, and the HydroShear extra adds Torch and CuPy for a CUDA 12 system:
+The package is not published on PyPI yet. Install from `main`; the base import stays lazy, and the HydroShear extra adds Torch and CuPy for a CUDA 12 system:
 
 ```bash
-uv add "unitac @ git+https://github.com/Kuriharamio/UniTac.git@codex/phase2-correctness-hardening"
-uv add "unitac[hydroshear] @ git+https://github.com/Kuriharamio/UniTac.git@codex/phase2-correctness-hardening"
+uv add "unitac @ git+https://github.com/Kuriharamio/UniTac.git@main"
+uv add "unitac[hydroshear] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 ```
 
 For repository development, clone with submodules and sync the locked environment:
