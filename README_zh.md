@@ -1,65 +1,59 @@
 # UniTac
 
-UniTac 是面向 [UniSim](https://github.com/unilabsim/unisim) 的独立触觉计算插件。目前包含 HydroShear；其求解器、网格 SDF、深度光栅化、几何处理和时间状态均由本仓库维护。运行时不依赖原 HydroShear 仓库。
+UniTac 是面向 [UniSim](https://github.com/unilabsim/unisim) 的独立触觉仿真插件，目前提供 HydroShear 模型。UniSim 提供脱离后端的碰撞几何、传感器坐标系、生命周期和字段元数据；UniTac 管理触觉模型，不持有仿真后端。
 
-`unisim` 提供与模型无关的 `TactileSensor` 契约和惰性插件工厂。UniTac 管理 HydroShear 参数和 CUDA 实现。模型接收脱离后端的碰撞几何、传感器安装坐标系和世界位姿，不持有仿真后端。
+## 当前功能
+
+- 在 CUDA 上计算 HydroShear 触觉位移，支持调用者提供的闭合凝胶几何。
+- GelSight Mini 标定 RGB、深度和 marker 可视化。
+- 支持 UniSim MuJoCo 集成；MJWarp 可通过可选依赖安装。
+
+HydroShear 位移是经验模型输出，不是物理长度。字段形状为 `(environment, sensor, row, column, xyz)`，单位标记为 `hydroshear_model_units`。相机压入深度单位为毫米。可视化使用经验系数 `0.05 mm/model unit` 将模型单位转换为显示位移；箭头 `display_gain` 只改变箭头。
 
 ## 安装
 
-基础包不导入 Torch 或 CUDA 库。在 CUDA 12 环境中安装算法依赖：
+从 Git 安装 UniTac：
 
 ```bash
-uv add unitac
-uv add unitac --extra hydroshear
+uv add "unitac @ git+https://github.com/Kuriharamio/UniTac.git@main"
+uv add "unitac[hydroshear] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 ```
 
-开发仓库时递归克隆子模块并同步锁定环境：
+按需安装可选依赖：
 
 ```bash
-git clone --recurse-submodules https://github.com/Kuriharamio/UniTac.git
-uv sync --extra hydroshear --extra viz
+uv add "unitac[hydroshear,visualization] @ git+https://github.com/Kuriharamio/UniTac.git@main"
+uv add "unitac[hydroshear,mujoco] @ git+https://github.com/Kuriharamio/UniTac.git@main"
+uv add "unitac[hydroshear,mujoco,mjwarp] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 ```
 
-HydroShear 的 SDF 与深度计算要求 CUDA。位姿输入支持 NumPy、CPU Torch 和 CUDA Torch，输出为传感器拥有的 CUDA Torch 位移场。调用者需提供传感器坐标系中的闭合凝胶三角网格，单位为米。仓库不包含 HydroShear 标定文件或凝胶网格。
+HydroShear 需要可用的 CUDA 设备，以及兼容 CUDA 12 的 PyTorch 和 CuPy。`visualization` 安装 OpenCV；`mujoco` 安装 MuJoCo 集成依赖；使用 MJWarp 时再添加 `mjwarp`。GelSight Mini 标定文件和 letter press 几何已包含在安装包中。
 
-## 使用
+## 运行
 
-```python
-from unisim.factory import create_tactile_sensor
-
-sensor = create_tactile_sensor(
-    "unitac",
-    model="hydroshear",
-    num_envs=64,
-    config={
-        "gel_mesh": licensed_closed_gel_triangles,  # (三角形数, 3, 3)，米
-        "surface_points": 2048,
-        "output_grid": {
-            "rows": 9,
-            "cols": 7,
-            "spacing_mm": [2.145, 2.153125],
-            "pixel_scale_mm": 0.065,
-        },
-        "solver": {"use_matmul_shear": True},
-        "device": "cuda:0",
-    },
-)
-sensor.materialize(scene_description)
-sensor.update_pose(body_pos, body_quat)  # 世界坐标，米，单位 wxyz 四元数
-sensor.advance()                         # 推进一次模型和历史状态
-observation = sensor.read()["displacement"]
-sensor.reset(env_ids=[3, 7])
-sensor.close()
-```
-
-`read()` 返回可复用缓冲区的视图。如需跨越下一次 `advance`、`reset`、`rebuild` 或 `close` 保存数据，请先复制。参见[架构与验证说明](docs/zh/architecture.md)。
-
-## 开发
+完整的公共 API 集成示例会推进 MuJoCo 场景，并将脱离后端的几何和位姿传给 HydroShear：
 
 ```bash
-uv run ruff check .
-uv run pytest -q
-uv run python benchmarks/bench_gpu.py --envs 1 64 1024
+uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
 ```
 
-HydroShear 数值代码来源和许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 与 [licenses/HydroShear-MIT.txt](licenses/HydroShear-MIT.txt)。
+运行包含 RGB、深度和 marker 可视化的 letter press 序列：
+
+```bash
+uv run --extra hydroshear --extra visualization --extra mujoco \
+  python examples/letter_press/run.py --headless --output-dir outputs/letter_press
+```
+
+示例按接近、下压、保持、旋转、抬升和返回的顺序推进 MuJoCo 位姿。HydroShear 根据物体几何和位姿计算接触，但不会将触觉接触力反馈给 MuJoCo。示例箭头增益默认为 `40`。可用 `--calibration-dir` 指定外部 GelSight Mini 标定数据。
+
+## 公共 API
+
+`unisim.factory.create_tactile_sensor("unitac", model="hydroshear", ...)` 返回 UniSim `TactileSensor`。调用者提供传感器局部坐标系中的闭合凝胶三角网格，单位为米；通过 `TactileSceneDescription` 完成物化后，依次调用 `update_pose`、`advance`、`read`、`reset` 和 `close`。`read()` 返回可复用 CUDA Torch 缓冲区的视图；如需跨越下一次 advance 或 reset 保存数据，请先复制。完整可运行的集成示例见 [examples/mujoco_backend.py](examples/mujoco_backend.py)。
+
+HydroShear 几何、SDF 和深度计算要求 CUDA，传感器没有 CPU 计算路径。RGB 和深度渲染是显式调用的 CPU 诊断操作，`read()` 不会执行渲染。
+
+## 文档与许可
+
+- [Architecture](docs/en/architecture.md) · [架构说明](docs/zh/architecture.md)
+- [第三方声明](THIRD_PARTY_NOTICES.md)
+- [MIT 许可](LICENSE)

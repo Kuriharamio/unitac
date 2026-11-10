@@ -35,16 +35,17 @@ class HydroShearVisualizationSnapshot:
     ``(sensor, 175, 100)``. Values are non-positive; zero means no indentation.
     Rows increase along sensor-local +y (image down), columns along +x (image
     right). Renderers project this view into their calibration's physical
-    pixel grid. ``displacement_mm`` is shaped ``(sensor, row, column, xyz)`` in
-    sensor-local millimetres. All returned arrays are independent, read-only
-    copies and remain valid after the next advance, reset, rebuild, or close.
+    pixel grid. ``displacement`` is shaped ``(sensor, row, column, xyz)`` in
+    empirical HydroShear model units, not a physical length. All returned
+    arrays are independent, read-only copies and remain valid after the next
+    advance, reset, rebuild, or close.
     """
 
     env_id: int
     generation: int
     site_names: tuple[str, ...]
     marker_positions_mm: np.ndarray
-    displacement_mm: np.ndarray
+    displacement: np.ndarray
     depth_mm: np.ndarray
 
 
@@ -69,9 +70,11 @@ class HydroShearSensor(TactileSensor):
     """HydroShear tactile simulation over detached UniSim scene geometry.
 
     Inputs are world-space body positions in metres and unit ``wxyz`` poses.
-    ``advance`` returns marker displacement in sensor-local coordinates in mm.
-    CUDA is required for the SDF and camera depth stages; CPU poses are staged
-    to that device while CUDA Torch poses stay on the caller's current stream.
+    ``advance`` returns empirical marker displacement in sensor-local
+    coordinates; the HydroSoft coefficients do not define a physical length
+    unit for this output. CUDA is required for the SDF and camera depth stages;
+    CPU poses are staged to that device while CUDA Torch poses stay on the
+    caller's current stream.
     """
 
     sensor_type = "hydroshear"
@@ -291,7 +294,7 @@ class HydroShearSensor(TactileSensor):
                 name="displacement",
                 shape=tuple(self._output.shape),
                 dtype="float32",
-                units="mm",
+                units="hydroshear_model_units",
                 frame="sensor_local",
                 dimensions=("environment", "sensor", "row", "column", "component_xyz"),
                 buffer_owner="sensor",
@@ -573,7 +576,7 @@ class HydroShearSensor(TactileSensor):
             generation=self._observation_generation,
             site_names=tuple(frame.site_name for frame in scene.sensor_frames),
             marker_positions_mm=marker_copy,
-            displacement_mm=displacement,
+            displacement=displacement,
             depth_mm=depth,
         )
 

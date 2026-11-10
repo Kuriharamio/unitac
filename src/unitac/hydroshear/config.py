@@ -15,6 +15,7 @@ _SOLVER_DEFAULTS: dict[str, Any] = {
     "mu": 0.5,
     "lambda_d": 20_000.0,
     "lambda_s": 10_800.0,
+    # Preserve HydroShear's empirical gains; these are not SI displacement conversions.
     "shear_scale": 1000.0 / 0.065,
     "dilate_scale": 1000.0 / 0.065,
     "normal_axis": 2,

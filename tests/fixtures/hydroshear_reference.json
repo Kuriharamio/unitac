@@ -4,7 +4,7 @@
   "device": "NVIDIA GeForce RTX 4060 Laptop GPU",
   "torch": "2.9.0+cu128",
   "cuda": "12.8",
-  "units": "mm",
+  "units": "hydroshear_model_units",
   "dtype": "float32",
   "shape": [
     2,
@@ -22,36 +22,36 @@
   "object_geometry": "synthetic closed box, half extents 5 x 5 x 4 mm",
   "scenarios": {
     "no_contact": {
-      "max_abs_mm": 0.0,
-      "norm_mm": 0.0
+      "max_abs_model_units": 0.0,
+      "norm_model_units": 0.0
     },
     "press": {
-      "max_abs_mm": 57.17340850830078,
-      "norm_mm": 427.7005310058594
+      "max_abs_model_units": 57.17340850830078,
+      "norm_model_units": 427.7005310058594
     },
     "translation": {
-      "max_abs_mm": 57.245086669921875,
-      "norm_mm": 451.1589660644531
+      "max_abs_model_units": 57.245086669921875,
+      "norm_model_units": 451.1589660644531
     },
     "rotation": {
-      "max_abs_mm": 57.15911865234375,
-      "norm_mm": 430.6040954589844
+      "max_abs_model_units": 57.15911865234375,
+      "norm_model_units": 430.6040954589844
     },
     "sliding": {
-      "max_abs_mm": 57.63100814819336,
-      "norm_mm": 466.96221923828125
+      "max_abs_model_units": 57.63100814819336,
+      "norm_model_units": 466.96221923828125
     },
     "sustained_contact": {
-      "max_abs_mm": 57.17340850830078,
-      "norm_mm": 427.7005310058594
+      "max_abs_model_units": 57.17340850830078,
+      "norm_model_units": 427.7005310058594
     },
     "multi_object": {
-      "max_abs_mm": 1.5030182600021362,
-      "norm_mm": 12.737489700317383
+      "max_abs_model_units": 1.5030182600021362,
+      "norm_model_units": 12.737489700317383
     },
     "partial_reset": {
-      "max_abs_mm": 1.0094941854476929,
-      "norm_mm": 9.36165714263916
+      "max_abs_model_units": 1.0094941854476929,
+      "norm_model_units": 9.36165714263916
     }
   }
 }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from importlib import resources
+
 import numpy as np
 from unisim.ray_query import (
     RayCollisionDescription,
@@ -113,6 +115,17 @@ def hydro_config(gel_mesh: np.ndarray, *, surface_points: int = 2048) -> dict:
         "solver": {"use_fft_dilation": False, "use_matmul_shear": True},
         "device": "cuda:0",
     }
+
+
+def gelsight_collision_mesh() -> np.ndarray:
+    """Load the packaged GelSight Mini collision mesh used by integration checks."""
+    from unitac.hydroshear.config import load_triangle_mesh
+
+    asset = resources.files("unitac.hydroshear").joinpath(
+        "assets", "letter_press", "gsmini_elastomer_collision_512.obj"
+    )
+    with resources.as_file(asset) as path:
+        return load_triangle_mesh(path)
 
 
 def full_body_poses(

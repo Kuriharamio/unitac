@@ -11,8 +11,13 @@ import torch.nn.functional as F
 
 class HydroSoftSensor:
     """
-    TactileFieldSensor gets sdf of indenter and queries elastomer points.
-    HydroSoftSensor is the reverse where it gets sdf of elastomer and queries indenter points.
+    Track object motion against an elastomer SDF and propagate it to markers.
+
+    Geometry and indentation inputs use metres. The HydroShear scale and
+    stiffness coefficients are empirical; this solver returns model units,
+    not a physically calibrated displacement length. The default
+    ``1000 / 0.065`` gains are preserved from HydroShear and are not a
+    post-solver conversion to millimetres.
     """
 
     def __init__(

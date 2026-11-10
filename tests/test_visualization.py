@@ -66,14 +66,13 @@ def _snapshot(depth: np.ndarray, displacement: np.ndarray) -> object:
         generation=4,
         site_names=("left_gel",),
         marker_positions_mm=markers,
-        displacement_mm=displacement[None],
+        displacement=displacement[None],
         depth_mm=depth[None],
     )
 
 
-def test_bundled_gelsight_mini_profile_is_native_and_uses_camera_markers() -> None:
+def test_bundled_gelsight_mini_is_default_and_uses_camera_markers() -> None:
     visualizer = _new_visualizer(mode="rgb")
-    assert visualizer.profile == "gelsight_mini"
     assert visualizer.display_gain == 4.0
     assert visualizer.renderer.width == 240
     assert visualizer.renderer.height == 320
@@ -92,18 +91,69 @@ def test_bundled_gelsight_mini_profile_is_native_and_uses_camera_markers() -> No
     visualizer.close()
 
 
-def test_taxim_projection_preserves_mm_per_pixel() -> None:
-    renderer = _new_visualizer(profile="taxim").renderer
-    source_depth = np.broadcast_to(-np.arange(100, dtype=np.float32) * 0.001, (175, 100)).copy()
-    native = renderer.depth_native_mm(source_depth)
-    center_y = renderer.height // 2
-    center_x = renderer.width // 2
-    shift = 100
-    native_delta = native[center_y, center_x + shift] - native[center_y, center_x]
-    target_mm = shift * renderer.pixel_scale_mm
-    source_width_mm = 2 * (0.0267 * 1000 - 0.05) * np.tan(np.deg2rad(72.146676) / 2) * 240 / 320
-    expected_delta = -0.001 * target_mm / source_width_mm * 100
-    assert native_delta == pytest.approx(expected_delta, abs=0.002)
+def test_gelsight_depth_maps_millimetres_to_calibrated_pixels_and_slope() -> None:
+    from unitac.hydroshear.visualization import (
+        _calibration_normals,
+        _height_pixels_from_depth,
+        _normal_lut_indices,
+    )
+
+    flat_mm = np.full((11, 11), -0.065, dtype=np.float32)
+    np.testing.assert_allclose(_height_pixels_from_depth(flat_mm, 0.065), 1.0)
+
+    zero_mm = np.zeros_like(flat_mm)
+    zero_height = _height_pixels_from_depth(zero_mm, 0.065)
+    np.testing.assert_array_equal(zero_height, 0.0)
+    zero_magnitude, _ = _calibration_normals(zero_height)
+    np.testing.assert_array_equal(zero_magnitude, 0.0)
+
+    x_pixels = np.broadcast_to(np.arange(11, dtype=np.float32), (11, 11))
+    plane_mm = -x_pixels * 0.065
+    height_pixels = _height_pixels_from_depth(plane_mm, 0.065)
+    magnitude, direction = _calibration_normals(height_pixels)
+    ix, iy = _normal_lut_indices(magnitude, direction, 125)
+    assert magnitude[5, 5] == pytest.approx(np.arctan(1.0), abs=1e-6)
+    assert direction[5, 5] == pytest.approx(0.0, abs=1e-6)
+    assert ix[5, 5] == 62
+    assert iy[5, 5] == 62
+    assert int(ix.max()) < 124
+    assert int(iy.max()) < 124
+
+
+def test_gelsight_rgb_uses_native_depth_scale_and_non_saturated_lut(monkeypatch) -> None:
+    from unitac.hydroshear.visualization import (
+        _calibration_normals,
+        _height_pixels_from_depth,
+        _normal_lut_indices,
+    )
+
+    renderer = _new_visualizer().renderer
+    flat_depth = np.full((175, 100), -0.065, dtype=np.float32)
+    native_flat = renderer.depth_native_mm(flat_depth)
+    np.testing.assert_allclose(native_flat, -0.065, atol=1e-7)
+    np.testing.assert_allclose(
+        _height_pixels_from_depth(native_flat, renderer.pixel_scale_mm), 1.0, atol=2e-6
+    )
+
+    source = np.zeros((175, 100), dtype=np.float32)
+    displacement = np.zeros((9, 7, 3), dtype=np.float32)
+    marker_positions = np.zeros_like(displacement)
+    images = []
+    for gradient_mm_per_pixel in (0.065, 0.13):
+        x = np.broadcast_to(
+            np.arange(renderer.width, dtype=np.float32),
+            (renderer.height, renderer.width),
+        )
+        native = -gradient_mm_per_pixel * x
+        monkeypatch.setattr(renderer, "depth_native_mm", lambda _depth, value=native: value)
+        height = _height_pixels_from_depth(native, renderer.pixel_scale_mm)
+        height = cv2.GaussianBlur(height.astype(np.float32), (5, 5), 0)
+        magnitude, direction = _calibration_normals(height)
+        ix, iy = _normal_lut_indices(magnitude, direction, renderer.bins)
+        assert int(ix.max()) < renderer.bins - 1
+        assert int(iy.max()) < renderer.bins - 1
+        images.append(renderer.render_rgb(source, displacement, marker_positions))
+    assert not np.array_equal(images[0][160, 120], images[1][160, 120])
 
 
 def test_gelsight_rgb_uses_contact_and_actual_displacement() -> None:
@@ -120,7 +170,7 @@ def test_gelsight_rgb_uses_contact_and_actual_displacement() -> None:
     moving = visualizer.update(source)
     assert np.any(still.image_rgb != moving.image_rgb)
     assert moving.peak_depth_mm == pytest.approx(-0.8)
-    np.testing.assert_array_equal(moving.raw_displacement_mm, displaced)
+    np.testing.assert_array_equal(moving.raw_displacement, displaced)
     assert source.read_count == 2
     visualizer.close()
 
@@ -134,14 +184,14 @@ def test_display_gain_changes_only_arrow_scale_on_rgb_layer() -> None:
     visualizer = _new_visualizer(mode="rgb", display_gain=4.0)
     frame = visualizer.update(source)
     assert frame.mode == "rgb"
-    np.testing.assert_array_equal(frame.raw_displacement_mm, displacement)
-    np.testing.assert_array_equal(frame.display_displacement_mm, displacement * 0.05)
-    np.testing.assert_array_equal(source.snapshot.displacement_mm[0], displacement)
+    np.testing.assert_array_equal(frame.raw_displacement, displacement)
+    np.testing.assert_array_equal(frame.display_displacement, displacement * 0.05)
+    np.testing.assert_array_equal(source.snapshot.displacement[0], displacement)
     assert frame.image_rgb.shape == (320, 240, 3)
     visualizer.set_display_gain(0.0)
     zero_gain = visualizer.update(source)
-    np.testing.assert_array_equal(zero_gain.raw_displacement_mm, displacement)
-    np.testing.assert_array_equal(zero_gain.display_displacement_mm, displacement * 0.05)
+    np.testing.assert_array_equal(zero_gain.raw_displacement, displacement)
+    np.testing.assert_array_equal(zero_gain.display_displacement, displacement * 0.05)
     assert np.any(frame.image_rgb != zero_gain.image_rgb)
     visualizer.close()
 
@@ -206,23 +256,10 @@ def test_external_gelsight_profile_uses_authorized_camera_marker_assets(
         _snapshot(np.zeros((175, 100), dtype=np.float32), np.zeros((9, 7, 3), dtype=np.float32))
     )
     visualizer = _new_visualizer(
-        profile="gelsight_mini", calibration_dir=calibration_dir, mode="rgb"
+        calibration_dir=calibration_dir, mode="rgb"
     )
     frame = visualizer.update(source)
     assert frame.calibration_label == "External GelSight Mini-calibrated RGB"
     assert frame.marker_label == "Camera dots + HydroShear arrows"
     assert frame.image_rgb.shape == marker_background.shape
-    visualizer.close()
-
-
-def test_taxim_depth_mode_maps_signed_depth_to_taxim_grid() -> None:
-    depth = np.zeros((175, 100), dtype=np.float32)
-    depth[60:100, 30:70] = -1.25
-    source = _SnapshotSource(_snapshot(depth, np.zeros((9, 7, 3), dtype=np.float32)))
-    visualizer = _new_visualizer(profile="taxim", mode="depth")
-    frame = visualizer.update(source, pad="left_gel")
-    assert frame.mode == "depth"
-    assert frame.pad_name == "left_gel"
-    assert frame.peak_depth_mm == pytest.approx(-1.25)
-    assert frame.image_rgb.shape == (480, 640, 3)
     visualizer.close()

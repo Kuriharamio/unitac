@@ -221,7 +221,7 @@ def _tactile_panel(
     lines = (
         f"Contact pixels: {metrics['contact_pixels']:.0f}",
         f"Peak depth: {metrics['peak_depth_mm']:.3f} mm",
-        f"Peak marker: {metrics['peak_displacement_mm']:.3f} mm",
+        f"Peak marker: {metrics['peak_displacement_model_units']:.3f} HydroShear units",
         f"Sensor generation: {metrics['generation']:.0f}",
     )
     for index, line in enumerate(lines):
@@ -268,7 +268,6 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
     visualizer = create_visualizer(
         "hydroshear",
         mode=args.mode,
-        profile=args.profile,
         calibration_dir=args.calibration_dir,
         display_gain=args.display_gain,
     )
@@ -306,15 +305,19 @@ def run_headless(args: argparse.Namespace) -> dict[str, object]:
                         contact_pixels = int(np.count_nonzero(snapshot_frame.depth_mm < -0.05))
                         sim_time = simulation_steps * float(model.opt.timestep)
                         qpos = backend.get_state_views(("qpos",), device="cpu")["qpos"][0].tolist()
-                        mean_displacement = snapshot_frame.raw_displacement_mm.mean(axis=(0, 1))
+                        mean_displacement = snapshot_frame.raw_displacement.mean(axis=(0, 1))
                         metrics = {
                             "phase": phase,
                             "simulation_time_s": sim_time,
                             "contact_pixels": contact_pixels,
                             "peak_depth_mm": snapshot_frame.peak_depth_mm,
-                            "peak_displacement_mm": snapshot_frame.peak_displacement_mm,
-                            "mean_displacement_mm": mean_displacement.tolist(),
-                            "mean_tangential_displacement_mm": mean_displacement[:2].tolist(),
+                            "peak_displacement_model_units": (
+                                snapshot_frame.peak_displacement_model_units
+                            ),
+                            "mean_displacement_model_units": mean_displacement.tolist(),
+                            "mean_tangential_displacement_model_units": (
+                                mean_displacement[:2].tolist()
+                            ),
                             "generation": snapshot_frame.generation,
                             "qpos": qpos,
                         }
@@ -399,7 +402,6 @@ def run_interactive(args: argparse.Namespace) -> None:
     visualizer = create_visualizer(
         "hydroshear",
         mode=args.mode,
-        profile=args.profile,
         calibration_dir=args.calibration_dir,
         display_gain=args.display_gain,
     )
@@ -542,7 +544,8 @@ def run_interactive(args: argparse.Namespace) -> None:
                             font,
                             mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
                             f"Peak depth: {tactile_frame.peak_depth_mm:.3f} mm",
-                            f"Peak marker: {tactile_frame.peak_displacement_mm:.3f} mm",
+                            "Peak marker: "
+                            f"{tactile_frame.peak_displacement_model_units:.3f} HydroShear units",
                         ),
                     ]
                 )
@@ -577,15 +580,9 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/letter_press"))
     parser.add_argument(
-        "--profile",
-        choices=("taxim", "gelsight_mini"),
-        default="gelsight_mini",
-        help="calibrated image profile; bundled HydroShear GelSight Mini is the default",
-    )
-    parser.add_argument(
         "--calibration-dir",
         type=Path,
-        help="optional GelSight Mini calibration override; requires --profile gelsight_mini",
+        help="optional GelSight Mini calibration override",
     )
     parser.add_argument("--mode", choices=("rgb", "depth"), default="rgb")
     parser.add_argument(
@@ -602,8 +599,6 @@ def main() -> None:
         parser.error("--frames must be a positive integer")
     if args.fps <= 0:
         parser.error("--fps must be positive")
-    if args.profile == "taxim" and args.calibration_dir is not None:
-        parser.error("--calibration-dir requires --profile gelsight_mini")
     if args.headless:
         args.frames = 300 if args.frames is None else args.frames
         print(json.dumps(run_headless(args), indent=2))

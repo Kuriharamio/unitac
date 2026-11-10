@@ -32,8 +32,8 @@ def test_real_unisim_backend_drives_tactile_scene_and_pose_inputs(backend_type):
     assert result["site_frames"][0]["site"] == "left_gel"
     assert result["site_frames"][0]["body"] == "left_pad"
     assert result["output_frame"] == "sensor_local"
-    assert result["actions"]["no_contact"]["norm_mm"] < 1e-5
-    assert result["actions"]["press"]["norm_mm"] > 1e-4
-    assert result["slide_tangent_delta_norm_mm"] > 1e-4
-    assert result["slide_tangent_delta_mean_mm"][0] > 0.0
-    assert result["actions"]["retreat"]["norm_mm"] < 1e-5
+    assert result["actions"]["no_contact"]["norm_model_units"] < 1e-5
+    assert result["actions"]["press"]["norm_model_units"] > 1e-4
+    assert result["slide_tangent_delta_norm_model_units"] > 1e-4
+    assert result["slide_tangent_delta_mean_model_units"][0] > 0.0
+    assert result["actions"]["retreat"]["norm_model_units"] < 1e-5

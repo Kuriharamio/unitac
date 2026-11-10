@@ -200,15 +200,20 @@ _WIDTH_WEIGHTS_CACHE: dict[tuple[int, int], np.ndarray] = {}
 
 
 def _width_bilinear_weights(src_w: int, dst_w: int):
-    """cv2 INTER_LINEAR-equivalent width-only weights (src_w, dst_w)."""
+    """OpenCV INTER_LINEAR-equivalent width-only weights (src_w, dst_w)."""
     key = (src_w, dst_w)
     cached = _WIDTH_WEIGHTS_CACHE.get(key)
     if cached is None:
-        import cv2
-
-        w = np.eye(src_w, dtype=np.float32)
-        out = cv2.resize(w, (dst_w, src_w), interpolation=cv2.INTER_LINEAR)
-        cached = np.asarray(out, dtype=np.float32)
+        source_x = (np.arange(dst_w, dtype=np.float64) + 0.5) * (src_w / dst_w) - 0.5
+        left = np.floor(source_x).astype(np.intp)
+        fraction = source_x - left
+        fraction[(left < 0) | (left >= src_w - 1)] = 0.0
+        left = np.clip(left, 0, src_w - 1)
+        right = np.clip(left + 1, 0, src_w - 1)
+        columns = np.arange(dst_w)
+        cached = np.zeros((src_w, dst_w), dtype=np.float32)
+        np.add.at(cached, (left, columns), (1.0 - fraction).astype(np.float32))
+        np.add.at(cached, (right, columns), fraction.astype(np.float32))
         _WIDTH_WEIGHTS_CACHE[key] = cached
     return cached
 

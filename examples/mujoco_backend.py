@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import tempfile
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -89,8 +90,11 @@ def _model_xml(path: Path) -> None:
 
 
 def _gel_mesh() -> np.ndarray:
-    path = Path(__file__).parents[1] / "tests/fixtures/gsmini_elastomer_collision_512.obj"
-    triangles = load_triangle_mesh(path).copy()
+    asset = resources.files("unitac.hydroshear").joinpath(
+        "assets", "letter_press", "gsmini_elastomer_collision_512.obj"
+    )
+    with resources.as_file(asset) as path:
+        triangles = load_triangle_mesh(path).copy()
     triangles += np.asarray([0.0005, 0.05975, 0.00725], dtype=np.float32)
     return triangles
 
@@ -285,13 +289,13 @@ def run(backend_type: str = "mujoco") -> dict[str, Any]:
                 "output_frame": sensor.output_specs[0].frame,
                 "actions": {
                     name: {
-                        "norm_mm": float(np.linalg.norm(value)),
-                        "mean_xyz_mm": value.mean(axis=(0, 1, 2, 3)).tolist(),
+                        "norm_model_units": float(np.linalg.norm(value)),
+                        "mean_xyz_model_units": value.mean(axis=(0, 1, 2, 3)).tolist(),
                     }
                     for name, value in outputs.items()
                 },
-                "slide_tangent_delta_norm_mm": slide_delta_norm,
-                "slide_tangent_delta_mean_mm": slide_delta_mean.tolist(),
+                "slide_tangent_delta_norm_model_units": slide_delta_norm,
+                "slide_tangent_delta_mean_model_units": slide_delta_mean.tolist(),
             }
         finally:
             if pose_plan is not None:

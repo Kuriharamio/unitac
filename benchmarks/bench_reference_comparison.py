@@ -295,7 +295,7 @@ def main() -> None:
             if not numerically_close:
                 raise RuntimeError(
                     f"reference output differs for envs={num_envs}, profile={profile}: "
-                    f"max_abs={max_abs_diff} mm"
+                    f"max_abs={max_abs_diff} HydroShear model units"
                 )
             cases.append(
                 {
@@ -303,7 +303,7 @@ def main() -> None:
                     "pose_profile": profile,
                     "reference": reference,
                     "unitac": current,
-                    "max_abs_output_difference_mm": max_abs_diff,
+                    "max_abs_output_difference_model_units": max_abs_diff,
                     "relative_l2_output_difference": relative_l2,
                     "outputs_match_reference_tolerance": numerically_close,
                 }
@@ -312,7 +312,7 @@ def main() -> None:
                 f"envs={num_envs} profile={profile} "
                 f"reference_env/s={reference['environment_steps_per_second']:.1f} "
                 f"unitac_env/s={current['environment_steps_per_second']:.1f} "
-                f"max_abs_diff_mm={max_abs_diff:.3g}"
+                f"max_abs_diff_model_units={max_abs_diff:.3g}"
             )
             del reference_output, current_output, difference
             gc.collect()

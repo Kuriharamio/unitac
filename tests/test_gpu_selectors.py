@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -117,6 +118,45 @@ def test_cuda_selector_path_has_no_profiled_host_transfer_or_scalar_sync(selecto
     )
     assert "aten::nonzero" not in event_names
     sensor.close()
+
+
+def test_normal_training_step_and_read_do_not_load_or_transfer_visualization_data():
+    script = """
+import sys
+import numpy as np
+import torch
+from tests.helpers import box_triangles, full_body_poses, hydro_config, make_scene
+from unitac import create_tactile_sensor
+
+gel = box_triangles((0.010, 0.012625, 0.003))
+gel[:, :, 2] -= 0.003
+sensor = create_tactile_sensor(
+    model="hydroshear", num_envs=1, config=hydro_config(gel, surface_points=16)
+)
+sensor.materialize(make_scene())
+positions_np, quaternions_np = full_body_poses(1, np.zeros((1, 1, 3), dtype=np.float32))
+positions = torch.as_tensor(positions_np, device="cuda:0")
+quaternions = torch.as_tensor(quaternions_np, device="cuda:0")
+profiler = torch.profiler.profile(
+    activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA]
+)
+with profiler:
+    sensor.update_pose(positions, quaternions)
+    sensor.advance()
+    output = sensor.read()["displacement"]
+torch.cuda.synchronize("cuda:0")
+assert output.device.type == "cuda"
+assert "cv2" not in sys.modules
+assert "unitac.hydroshear.visualization" not in sys.modules
+event_names = [event.name.lower() for event in profiler.events()]
+assert not any("memcpy dtoh" in name or "cuda memcpy dtoh" in name for name in event_names)
+sensor.close()
+"""
+    subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
 
 
 def test_empty_device_selectors_leave_output_and_history_unchanged():

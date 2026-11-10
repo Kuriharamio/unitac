@@ -103,13 +103,10 @@ def test_body_meshes_uses_compiled_mesh_scale_and_geom_local_pose():
     assert np.any(np.all(np.isclose(triangles, [4.0, 6.0, 7.0]), axis=-1))
 
 
-def test_original_gelsight_collision_mesh_is_a_closed_512_face_fixture():
-    from pathlib import Path
+def test_packaged_gelsight_collision_mesh_is_closed_with_512_faces():
+    from tests.helpers import gelsight_collision_mesh
 
-    from unitac.hydroshear.config import load_triangle_mesh
-
-    path = Path(__file__).parent / "fixtures" / "gsmini_elastomer_collision_512.obj"
-    triangles = load_triangle_mesh(path)
+    triangles = gelsight_collision_mesh()
     assert triangles.shape == (512, 3, 3)
     np.testing.assert_allclose(
         [triangles.min(), triangles.max()],

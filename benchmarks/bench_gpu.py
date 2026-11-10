@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from datetime import UTC, datetime
+from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -24,17 +25,19 @@ import torch  # noqa: E402
 from tests.helpers import (  # noqa: E402
     box_triangles,
     full_body_poses,
+    gelsight_collision_mesh,
     hydro_config,
     make_scene,
 )
 from unisim.factory import create_tactile_sensor  # noqa: E402
 
-from unitac.hydroshear.config import load_triangle_mesh  # noqa: E402
 from unitac.hydroshear.fft_shear import shear_matmul, shear_matmul_active  # noqa: E402
 
 SYNTHETIC_GEL = box_triangles((0.010, 0.012625, 0.003))
 SYNTHETIC_GEL[:, :, 2] -= 0.003
-GELSIGHT_MESH_PATH = REPO / "tests/fixtures/gsmini_elastomer_collision_512.obj"
+GELSIGHT_MESH_RESOURCE = resources.files("unitac.hydroshear").joinpath(
+    "assets", "letter_press", "gsmini_elastomer_collision_512.obj"
+)
 GELSIGHT_OFFSET = np.asarray([0.0005, 0.05975, 0.00725], dtype=np.float32)
 DEVICE = torch.device("cuda:0")
 
@@ -42,12 +45,12 @@ DEVICE = torch.device("cuda:0")
 def _gel(name: str) -> tuple[np.ndarray, dict[str, Any]]:
     if name == "synthetic12":
         return SYNTHETIC_GEL, {"triangles": 12, "source": "closed synthetic box"}
-    mesh = load_triangle_mesh(GELSIGHT_MESH_PATH).copy() + GELSIGHT_OFFSET
-    digest = hashlib.sha256(GELSIGHT_MESH_PATH.read_bytes()).hexdigest()
+    mesh = gelsight_collision_mesh().copy() + GELSIGHT_OFFSET
+    digest = hashlib.sha256(GELSIGHT_MESH_RESOURCE.read_bytes()).hexdigest()
     return mesh, {
         "triangles": int(mesh.shape[0]),
         "source": "HydroShear MIT asset gsmini_elastomer_collision_512.obj",
-        "source_path": "tests/fixtures/gsmini_elastomer_collision_512.obj",
+        "source_path": "unitac.hydroshear/assets/letter_press/gsmini_elastomer_collision_512.obj",
         "sha256": digest,
         "sensor_frame_offset_m": GELSIGHT_OFFSET.tolist(),
     }
@@ -184,8 +187,13 @@ def _capture_profile(
     )
     with profiler:
         _step(sensor, positions, quaternions, profile, scenario)
+        output = sensor.read()["displacement"]
+        if output.device != DEVICE:
+            raise RuntimeError(f"normal read returned {output.device}, expected {DEVICE}")
     torch.cuda.synchronize(DEVICE)
-    return _profiler_report(profiler)
+    result = _profiler_report(profiler)
+    result["read_device"] = str(output.device)
+    return result
 
 
 def _active_point_stats(sensor: Any, num_envs: int) -> dict[str, float | int]:
@@ -241,8 +249,15 @@ def _measure_case(
     output_pointer = output.data_ptr()
     output_finite = bool(torch.isfinite(output).all().item())
     output_norm = float(torch.linalg.vector_norm(output).item())
+    max_environment_row_difference = float(
+        torch.max(torch.abs(output - output[0:1])).item()
+    )
     if not output_finite:
         raise RuntimeError(f"{gel_name}/{scenario}/{profile}/{num_envs}: non-finite output")
+    if not torch.allclose(output, output[0:1].expand_as(output), rtol=2e-6, atol=2e-5):
+        raise RuntimeError(
+            f"{gel_name}/{scenario}/{profile}/{num_envs}: environment rows differ"
+        )
     if scenario == "no_contact" and output_norm > 1e-5:
         raise RuntimeError(f"no-contact case produced nonzero output norm {output_norm}")
 
@@ -284,7 +299,8 @@ def _measure_case(
         "stage_timing_step_ms": stage_step_ms,
         "stage_ms_last_step": stages_ms,
         "active_contact_points": active_points,
-        "output_norm_mm": output_norm,
+        "output_norm_model_units": output_norm,
+        "max_environment_row_difference_model_units": max_environment_row_difference,
         "transfer_diagnostics": dict(sensor.transfer_diagnostics),
         "profiled_transfer_and_sync_events": transfer_profile,
         "memory_after_warmup": warm_memory,

@@ -116,7 +116,7 @@ def test_pose_update_does_not_advance_and_read_reuses_sensor_buffer():
     sensor.update_pose(pose, quat)
     assert sensor.read()["displacement"].data_ptr() == first_ptr
     assert sensor.output_specs[0].buffer_owner == "sensor"
-    assert sensor.output_specs[0].units == "mm"
+    assert sensor.output_specs[0].units == "hydroshear_model_units"
     sensor.close()
 
 
@@ -215,11 +215,11 @@ def test_visualization_snapshot_is_latest_copied_depth_and_marker_state():
     assert snapshot.generation == 1
     assert snapshot.site_names == ("sensor0", "sensor1")
     assert snapshot.marker_positions_mm.shape == (9, 7, 3)
-    assert snapshot.displacement_mm.shape == (2, 9, 7, 3)
+    assert snapshot.displacement.shape == (2, 9, 7, 3)
     assert snapshot.depth_mm.shape == (2, 175, 100)
-    np.testing.assert_allclose(snapshot.displacement_mm, displacement[0], rtol=0, atol=0)
+    np.testing.assert_allclose(snapshot.displacement, displacement[0], rtol=0, atol=0)
     assert np.any(snapshot.depth_mm < 0.0)
-    for array in (snapshot.marker_positions_mm, snapshot.displacement_mm, snapshot.depth_mm):
+    for array in (snapshot.marker_positions_mm, snapshot.displacement, snapshot.depth_mm):
         assert not array.flags.writeable
 
     prior_depth = snapshot.depth_mm.copy()

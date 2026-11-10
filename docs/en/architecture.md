@@ -1,121 +1,43 @@
-# UniTac architecture and validation
+# Architecture
 
 [English](architecture.md) | [中文](../zh/architecture.md)
 
 ## Boundaries
 
-UniSim owns the model-neutral tactile contract. UniTac is an independent
-UniSim plugin and owns HydroShear configuration, geometry preparation, CUDA
-execution, history, output buffers, and resource cleanup. The HydroShear
-repository is a numerical source only; it is not installed or imported at
-runtime.
-
 ```text
-unisim-core
-└── tactile.py                 scene, capabilities, lifecycle, field metadata
-
-unitac
-├── __init__.py                light import and model dispatch
-├── geometry.py                collision descriptor → body-local triangles
-└── hydroshear/
-    ├── config.py              HydroShear-only validated model settings
-    ├── depth.py               camera rasterization and depth projection
-    ├── sdf.py                 signed mesh distance
-    ├── solver.py              HydroSoft history and marker displacement
-    ├── fft_dilation.py        optional grid dilation path
-    ├── fft_shear.py           optional dense shear path
-    └── sensor.py              UniSim lifecycle and CUDA buffer ownership
+UniSim
+  public tactile scene, pose, lifecycle, and field contracts
+    ↓
+UniTac
+  model selection and HydroShear implementation
+    ↓
+HydroShear
+  geometry sampling, depth, SDF, temporal state, and displacement
 ```
 
-## UniRay patterns
+UniSim owns the backend-neutral `TactileSensor`, `TactileSceneDescription`, and `TactileFieldSpec` contracts. UniTac receives detached collision geometry, mounted sensor frames, and world body poses. It does not retain a simulator backend. HydroShear owns its configuration, CUDA computation, buffers, reset, rebuild, and cleanup. `src/unitac/__init__.py` selects the model with a small factory branch.
 
-UniTac reuses UniRay's independent-plugin boundary and the same UniSim
-principles: model packages are imported lazily; static topology is compiled
-on a cold path; per-step state uses detached arrays or device tensors; output
-buffer ownership and execution profiles are explicit; and the plugin never
-holds a `SimBackend`. UniTac obtains geometry through UniSim's
-`RayCollisionDescription` and mounts through `RaySiteFrameDescription`.
+## Data flow
 
-Tactile computation does not use a ray-caster interface. The contract permits
-each model to choose its own field names, shape, units, coordinate frame, and
-buffer lifetime. HydroShear declares a sensor-local displacement grid; a
-different model may expose nodes, contact values, force, pressure, or images.
+1. `materialize(scene)` validates object and sensor identities, converts supported collision descriptors to body-local triangles, samples the configured object surfaces, and allocates device workspaces.
+2. `update_pose(body_pos, body_quat)` replaces cached world poses. Positions are in metres and quaternions use unit `wxyz` order.
+3. `advance()` transforms object samples into each sensor frame, rasterizes indentation depth in millimetres, converts marker heights to metres for HydroSoft, advances its temporal state once, and writes the marker field.
+4. `read()` returns the latest marker field without advancing state. `read_visualization_snapshot()` explicitly copies diagnostic arrays to CPU for the visualizer.
 
-## HydroShear source migration
+## Lifecycle and outputs
 
-| Reference source at `26403177779c4f74689761c041fa9580b075dc08` | UniTac implementation | Retained behavior or change |
-| --- | --- | --- |
-| `src/hydroshear/depth.py` | `src/unitac/hydroshear/depth.py` | Camera projection, depth conventions, and triangle rasterization; persistent renderer workspaces replace per-call z/depth allocation. |
-| `src/hydroshear/mesh_sdf.py` | `src/unitac/hydroshear/sdf.py` | Fused triangle-mesh signed distance and inside/outside classification; query/result storage is prepared for the fixed batch. |
-| `src/hydroshear/sensors/hydrosoft.py` | `src/unitac/hydroshear/solver.py` | HydroSoft force history, friction response, dilation, shear, and reset semantics. History inputs are copied before reuse so persistent CuPy workspaces cannot mutate previous-frame state. |
-| `src/hydroshear/sensors/fft_dilation.py` | `src/unitac/hydroshear/fft_dilation.py` | Optional FFT dilation implementation. |
-| `src/hydroshear/sensors/fft_shear.py` | `src/unitac/hydroshear/fft_shear.py` | Optional dense shear implementation. |
-| Old batch/configuration and viewer paths | `geometry.py`, `config.py`, `sensor.py` | Replaced by detached UniSim geometry, one validated HydroShear config, explicit lifecycle, preallocated buffers, and caller-stream Torch/CuPy interop. Old viewer and experiment setup are not runtime code. |
+The caller owns physics stepping and calls `materialize`, `update_pose`, `advance`, `read`, `reset`, and `close`. Geometry changes use `rebuild(scene)`. The model receives no backend object and does not apply contact forces back to the simulator.
 
-The geometry layer triangulates supported public mesh and primitive collision
-descriptors, samples the object surface once with a fixed seed, and transforms
-those samples into each pad frame on each step. HydroShear requires closed
-object and gel surfaces, and production callers supply their licensed gel
-mesh. The letter-press example bundles its collision mesh. GelSight Mini
-calibration assets are loaded only when the model-specific visualizer is
-explicitly created; the normal sensor training path does not initialize or
-render them.
+The `displacement` field is float32 CUDA Torch data shaped `(environment, sensor, row, column, xyz)`. Its `TactileFieldSpec.units` is `hydroshear_model_units`: HydroSoft's empirical coefficients do not define a physical displacement length. `read()` returns a view into a sensor-owned buffer that can be reused at the next advance, reset, rebuild, or close.
 
-The optional FFT modules remain HydroShear implementation choices. The
-default tested configuration uses the reference `use_fft_dilation=False` and
-`use_matmul_shear=True` path. UniTac does not expose an FFT abstraction in the
-UniSim contract.
+Visualization snapshots contain copied sensor-local marker positions in millimetres, camera indentation depth in millimetres with shape `(sensor, 175, 100)`, and the unscaled `displacement` model field. GelSight Mini rendering converts depth millimetres to calibrated height pixels by dividing by `0.065 mm/pixel`. It maps HydroShear model units to display motion with the empirical `0.05 mm/model-unit` coefficient. These display values are not physical displacement measurements. RGB calibration and OpenCV are loaded only when the visualizer is created.
 
-## XENSIM architecture check
+## Configuration and devices
 
-The read-only UniManip adapter and its vendored XENSIM source were inspected
-at UniManip `main` and XENSIM snapshot
-`006166e9dc28d74690c69f89c8d5920f449f6b3b`. The adapter constructs
-`TactileFemBatch` from one body-local triangle mesh per object, environment
-and pad counts, an optional FEM file, and solver options. It combines the
-object and pad world poses per step, keeps results on CUDA, and maps solver
-positions relative to FEM rest positions into a configured output field. The
-underlying batch can return displacement, positions, force, and contact data;
-the adapter currently publishes a configured `xensim` displacement field
-with millimetre units. Reset is delegated to the FEM runtime and supports
-selected environments.
+The HydroShear config requires `gel_mesh`, a closed `(triangles, 3, 3)` mesh in sensor-local metres. `surface_points` defaults to 2,048. `output_grid` defines marker rows, columns, spacing, camera centers, and pixel scale. `solver` contains HydroSoft parameters and optional FFT or matrix multiplication paths. `device` selects a CUDA device.
 
-| Shared by the UniTac contract | Model-specific in a future XENSIM plugin |
-| --- | --- |
-| Detached object collision geometry and body identity | FEM file, material/solver parameters, and FEM rest mesh |
-| Sensor mount frames and per-environment world poses | FEM contact/depth mapping, matrix assembly, and iterative solves |
-| Materialize, pose update, advance, read, reset, close | XENSIM channels, optional force/contact fields, and grid interpolation |
-| Declared device profiles and each output's own metadata | XENSIM-specific cache policy and static FEM resources |
+CUDA is required for geometry distance and depth computation. NumPy and CPU Torch poses are copied to the configured device. CUDA Torch poses use the caller's current stream and DLPack interoperability. Normal `read()` stays on CUDA; diagnostic snapshots and image rendering perform explicit device-to-host copies.
 
-This audit supports reusing the scene, pose, lifecycle, capability, and field
-metadata contracts. It does not justify adding FEM settings, fixed tactile
-grids, or an XENSIM stub to UniSim or UniTac today. A future plugin would add
-its FEM resources and solver under its own package and publish whatever field
-shapes it actually produces.
+## Adding a model
 
-## Numerical reference
-
-`tests/fixtures/hydroshear_reference.npz` stores full marker arrays generated
-with the source commit above on an RTX 4060 Laptop GPU (Torch 2.9.0+cu128,
-CUDA 12.8). Both paths use synthetic closed box meshes, 2,048 fixed surface
-samples, two pads, a 9×7 grid, float32 output in millimetres, and identical
-solver settings. The fixtures contain no proprietary calibration assets.
-`tests/test_hydroshear_reference.py` compares every field with
-`rtol=2e-6, atol=2e-5`.
-
-| Scenario | Reference maximum absolute displacement (mm) | Reference norm (mm) |
-| --- | ---: | ---: |
-| No contact | 0 | 0 |
-| Press | 57.173409 | 427.700531 |
-| Translation | 57.245087 | 451.158966 |
-| Rotation | 57.159119 | 430.604095 |
-| Sliding | 57.631008 | 466.962219 |
-| Sustained contact | 57.173409 | 427.700531 |
-| Two objects | 1.503018 | 12.737490 |
-| Partial reset | 1.009494 | 9.361657 |
-
-The single-environment reference field is `(2 pads, 9 rows, 7 columns,
-3 components)`; UniTac adds the leading environment dimension to its runtime
-field. The partial-reset fixture records the selected environment after reset.
-All eight fixture comparisons and the pose-update/read-buffer lifecycle test
-pass on the local CUDA device.
+Add a model-specific implementation and one selection branch in the UniTac factory. Implement UniSim's `TactileSensor` contract and declare each output's shape, units, frame, device profile, and buffer lifetime. A model can use its own geometry requirements and output fields; UniSim does not prescribe HydroShear's grid or displacement format.
