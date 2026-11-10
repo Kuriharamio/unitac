@@ -31,7 +31,7 @@ HydroShear requires a working CUDA device and CUDA 12 compatible PyTorch and CuP
 
 ## Run
 
-The complete public API integration example advances a MuJoCo scene and passes detached geometry and poses to HydroShear:
+Run one HydroShear sample from a static MuJoCo scene:
 
 ```bash
 uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
@@ -44,11 +44,11 @@ uv run --extra hydroshear --extra visualization --extra mujoco \
   python examples/letter_press/run.py --headless --output-dir outputs/letter_press
 ```
 
-The example advances MuJoCo poses through approach, press, hold, rotation, lift, and return. HydroShear computes contact from the object geometry and pose; it does not apply tactile contact forces back to MuJoCo. The example's arrow gain defaults to `40`. Use `--calibration-dir` to provide an external GelSight Mini calibration.
+The example extracts collision geometry and a sensor site from UniSim, then calls HydroShear once with a fixed pose. For dynamic simulations, pass current body poses to `update_pose` before each `advance`.
 
 ## Public API
 
-`unisim.factory.create_tactile_sensor("unitac", model="hydroshear", ...)` returns a UniSim `TactileSensor`. Provide a closed gel triangle mesh in sensor-local metres, materialize it with a `TactileSceneDescription`, then call `update_pose`, `advance`, `read`, `reset`, and `close`. `read()` returns a view into a reusable CUDA Torch buffer; copy it before the next advance or reset if it must be retained. The full runnable integration is [examples/mujoco_backend.py](examples/mujoco_backend.py).
+`unisim.factory.create_tactile_sensor("unitac", model="hydroshear", ...)` returns a UniSim `TactileSensor`. Provide a closed gel triangle mesh in sensor-local metres, materialize it with a `TactileSceneDescription`, then call `update_pose`, `advance`, `read`, `reset`, and `close`. `read()` returns a view into a reusable CUDA Torch buffer; copy it before the next advance or reset if it must be retained. The minimal runnable integration is [examples/mujoco_backend.py](examples/mujoco_backend.py).
 
 HydroShear geometry, SDF, and depth calculation require CUDA. The sensor has no CPU compute path. RGB and depth rendering are explicit CPU-side diagnostic work and are not performed by `read()`.
 
