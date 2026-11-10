@@ -30,8 +30,8 @@ _GELSIGHT_MINI_FILES = (
 )
 
 
-def _taxim_normals(height_pixels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Calculate the central-difference slopes used by Taxim's optical model."""
+def _calibration_normals(height_pixels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate calibrated image-plane slopes from the rendered height field."""
     top = height_pixels[:-2, 1:-1]
     bottom = height_pixels[2:, 1:-1]
     left = height_pixels[1:-1, :-2]
@@ -85,8 +85,8 @@ def _depth_in_native_pixels(
 ) -> np.ndarray:
     """Project HydroShear's camera raster onto a calibrated sensor pixel grid.
 
-    HydroShear stores a pinhole-camera raster, while Taxim and GelSight
-    calibrations describe a physical image plane. This maps target pixel
+    HydroShear stores a pinhole-camera raster, while tactile calibrations
+    describe a physical image plane. This maps target pixel
     centers to the source camera rays using the sampled surface depth to recover
     each ray's intersection. Millimetres are preserved; out-of-view pixels
     remain unindented instead of stretching HydroShear's camera image to fill
@@ -326,7 +326,7 @@ class TaximRenderer:
         )
 
     def _optical_rgb(self, height_pixels: np.ndarray) -> np.ndarray:
-        magnitude, direction = _taxim_normals(height_pixels)
+        magnitude, direction = _calibration_normals(height_pixels)
         x_bin = 0.5 * np.pi / (self.bins - 1)
         y_bin = 2.0 * np.pi / (self.bins - 1)
         ix = np.clip(np.floor(magnitude / x_bin).astype(np.intp), 0, self.bins - 1)
@@ -389,25 +389,32 @@ class TaximRenderer:
 
 
 class GelSightMiniRenderer:
-    """Optional renderer for a user-supplied, authorized GelSight Mini profile."""
+    """Renderer using bundled or caller-supplied GelSight Mini calibration data."""
 
     width = 240
     height = 320
     pixel_scale_mm = 0.065
-    calibration_label = "External GelSight Mini calibration"
-    marker_label = "Calibrated camera dots + synthetic arrows"
+    calibration_label = "GelSight Mini-calibrated RGB"
+    marker_label = "Camera dots; motion from HydroShear displacement"
 
-    def __init__(self, calibration_dir: Path | str) -> None:
+    def __init__(self, calibration_dir: Path | str | None = None) -> None:
         import cv2
 
         self._cv2 = cv2
-        root = Path(calibration_dir).expanduser().resolve()
-        paths = tuple(root / name for name in _GELSIGHT_MINI_FILES)
+        external_calibration = calibration_dir is not None
+        root = (
+            Path(calibration_dir).expanduser().resolve()
+            if external_calibration
+            else _resource_directory("gelsight_mini")
+        )
+        paths = tuple(root.joinpath(name) for name in _GELSIGHT_MINI_FILES)
         missing = [path.name for path in paths if not path.is_file()]
         if missing:
             raise FileNotFoundError(
-                f"GelSight Mini calibration directory {root} is missing: {', '.join(missing)}"
+                f"GelSight Mini calibration at {root} is missing: {', '.join(missing)}"
             )
+        if external_calibration:
+            self.calibration_label = "External GelSight Mini-calibrated RGB"
         self.bins, self.grad_r, self.grad_g, self.grad_b = _load_lut(paths[0])
         self.background = _read_rgb(cv2, paths[1])
         self.marker_background = _read_rgb(cv2, paths[2])
@@ -488,7 +495,7 @@ class GelSightMiniRenderer:
             pixel_scale_mm=self.pixel_scale_mm,
             cv2=self._cv2,
         )
-        magnitude, direction = _taxim_normals(height_pixels)
+        magnitude, direction = _calibration_normals(height_pixels)
         ix = np.clip(
             np.floor(magnitude / (0.5 * np.pi / (self.bins - 1))).astype(np.intp),
             0,
@@ -550,7 +557,7 @@ class HydroShearVisualizer:
         self,
         *,
         mode: VisualizationMode = "rgb",
-        profile: CalibrationProfile = "taxim",
+        profile: CalibrationProfile = "gelsight_mini",
         calibration_dir: Path | str | None = None,
         pad: int | str = 0,
         display_gain: float = 10.0,
@@ -564,8 +571,6 @@ class HydroShearVisualizer:
                 raise ValueError("calibration_dir is only used with profile='gelsight_mini'")
             self.renderer = TaximRenderer()
         elif profile == "gelsight_mini":
-            if calibration_dir is None:
-                raise ValueError("profile='gelsight_mini' requires an authorized calibration_dir")
             self.renderer = GelSightMiniRenderer(calibration_dir)
         else:
             raise ValueError("profile must be 'taxim' or 'gelsight_mini'")

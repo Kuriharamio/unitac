@@ -55,8 +55,11 @@ different model may expose nodes, contact values, force, pressure, or images.
 The geometry layer triangulates supported public mesh and primitive collision
 descriptors, samples the object surface once with a fixed seed, and transforms
 those samples into each pad frame on each step. HydroShear requires closed
-object and gel surfaces. The caller supplies its licensed gel mesh; no
-GelSight calibration files or gel assets are bundled.
+object and gel surfaces, and production callers supply their licensed gel
+mesh. The letter-press example bundles its collision mesh. GelSight Mini
+calibration assets are loaded only when the model-specific visualizer is
+explicitly created; the normal sensor training path does not initialize or
+render them.
 
 The optional FFT modules remain HydroShear implementation choices. The
 default tested configuration uses the reference `use_fft_dilation=False` and

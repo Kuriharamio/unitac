@@ -20,25 +20,38 @@ SHA256 `562292fa4e38d310ecd07505ab1fe08424d62e029d4e7c625dc6a6980b070e7a`.
 The source repository's MIT license applies; the license text is included in
 `licenses/HydroShear-MIT.txt`.
 
-The TACSL GelSight Mini calibration archive and background images are not
-bundled. The HydroShear source repository directs users to obtain these assets
-separately, and no redistribution license for the files has been verified.
-The files were introduced at HydroShear commit
-`460c94aea77a5b5e862962f7e228e025e5ac71a6` on `perf/sdf`:
+The bundled GelSight Mini calibration files are byte-for-byte identical to
+files in the official [MMintLab/hydroshear repository](https://github.com/MMintLab/hydroshear)
+at commit `f815b82fdf3451852acd918933020a82cede1f3b`. The upstream repository
+declares the [MIT License](https://github.com/MMintLab/hydroshear/blob/f815b82fdf3451852acd918933020a82cede1f3b/LICENSE),
+Copyright (c) 2026 MMintLab; that license text is included at
+`licenses/HydroShear-MIT.txt`. The exact upstream source paths, Git blob IDs,
+and SHA256 checksums are:
 
-- `polycalib.npz`, SHA256
+- `rl/tacsl_sensors/tactile_utils/gs_mini_data/polycalib.npz` — Git blob
+  `ec7ed50917ca126a27e7888767178374b0a798e7`; SHA256
   `34937ac09579b259fd344f99fbc71ebb41a6ad8bbe5f75118d016ada8fbb044a`.
-- `mmint_gs_mini_2D9C-N227_07072025_bg_R_no_dots.png`, SHA256
+- `rl/tacsl_sensors/tactile_utils/gs_mini_data/mmint_gs_mini_2D9C-N227_07072025_bg_R_no_dots.png`
+  — Git blob `8dac60cd052d95572181457e1558589106c71d8a`; SHA256
   `aaa0fdbfb7bb35a1223a4d1120b20b2a2bcdacb4030a74d22756b6bc46264cad`.
-- `mmint_bg.jpg`, SHA256
+- `rl/tacsl_sensors/tactile_utils/gs_mini_data/mmint_bg.jpg` — Git blob
+  `84a9f7381c21a977cb52bfa91af5aa9f76dbc712`; SHA256
   `1da75bd77c00a41b18e6de974bbcd4f6df532c07d6a9e0e618597467687bdd55`.
 
-The [TACSL setup instructions](https://github.com/isaac-sim/IsaacGymEnvs/blob/tacsl/isaacgymenvs/tacsl_sensors/install/tacsl_setup.md)
-instruct users to download GelSight assets separately. The optional
-`gelsight_mini` visualization profile accepts an external directory containing
-these three files only when the user is authorized to use them.
+These exact calibration data files are published in the MIT-licensed upstream
+repository, and no file-specific exception was found. The upstream files do
+not separately identify the calibration capture's original contributors or
+any underlying third-party source. If an asset-specific confirmation is
+required beyond the repository's MIT grant, the narrow question for MMintLab is
+whether these three named calibration files are covered by that grant.
 
-The bundled HydroShear RGB visualization uses the original MIT-licensed
+The upstream file
+`rl/tacsl_sensors/tactile_utils/gelsight_render.py` carries a separate
+Copyright (c) 2024 NVIDIA proprietary notice. That implementation is not
+included in UniTac and was not copied; UniTac's RGB renderer is independently
+implemented.
+
+An optional Taxim visualization profile uses the original MIT-licensed
 [Taxim](https://github.com/Robo-Touch/Taxim) calibration assets from upstream
 commit `4936657a42e00f09a94301111830250ef2c96a89`. Copyright (c) 2021
 CMURoboTouch. The full license is included at

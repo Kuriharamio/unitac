@@ -574,13 +574,13 @@ def main() -> None:
     parser.add_argument(
         "--profile",
         choices=("taxim", "gelsight_mini"),
-        default="taxim",
-        help="calibrated image profile; Taxim is bundled and is the default",
+        default="gelsight_mini",
+        help="calibrated image profile; bundled HydroShear GelSight Mini is the default",
     )
     parser.add_argument(
         "--calibration-dir",
         type=Path,
-        help="authorized GelSight Mini files; requires --profile gelsight_mini",
+        help="optional GelSight Mini calibration override; requires --profile gelsight_mini",
     )
     parser.add_argument("--mode", choices=("rgb", "displacement", "depth"), default="rgb")
     parser.add_argument(
@@ -597,8 +597,6 @@ def main() -> None:
         parser.error("--frames must be a positive integer")
     if args.fps <= 0:
         parser.error("--fps must be positive")
-    if args.profile == "gelsight_mini" and args.calibration_dir is None:
-        parser.error("--profile gelsight_mini requires --calibration-dir")
     if args.profile == "taxim" and args.calibration_dir is not None:
         parser.error("--calibration-dir requires --profile gelsight_mini")
     if args.headless:
