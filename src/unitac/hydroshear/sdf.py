@@ -158,7 +158,9 @@ def _to_cupy(tensor: torch.Tensor):
 
 def _from_cupy(array, device: torch.device) -> torch.Tensor:
     if device.type == "cuda":
-        return torch.from_dlpack(array).to(device=device)
+        # DLPack preserves the CuPy array's CUDA device and storage, which
+        # already match ``device`` here.
+        return torch.from_dlpack(array)
     return torch.from_numpy(array.get())
 
 
