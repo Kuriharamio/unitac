@@ -591,7 +591,7 @@ def main() -> None:
     parser.add_argument(
         "--display-gain",
         type=float,
-        default=4.0,
+        default=40.0,
         help="visual arrow scale; does not change raw sensor displacement",
     )
     parser.add_argument(
