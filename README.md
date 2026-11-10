@@ -6,7 +6,7 @@ UniTac is an independent tactile simulation plugin for [UniSim](https://github.c
 
 - HydroShear tactile displacement on CUDA, from caller-supplied closed gel geometry.
 - GelSight Mini calibrated RGB, depth, and marker visualization.
-- UniSim MuJoCo integration; MJWarp is available with its optional extra.
+- Verified letter press runs on UniSim MuJoCo and MJWarp backends.
 
 HydroShear displacement is an empirical model output, not a physical length. Its field is shaped `(environment, sensor, row, column, xyz)` and reports `hydroshear_model_units`. Camera indentation depth is in millimetres. The visualizer maps model units to display motion with an empirical `0.05 mm/model unit` scale; arrow `display_gain` changes the arrows only.
 
@@ -27,7 +27,17 @@ uv add "unitac[hydroshear,mujoco] @ git+https://github.com/Kuriharamio/UniTac.gi
 uv add "unitac[hydroshear,mujoco,mjwarp] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 ```
 
-HydroShear requires a working CUDA device and CUDA 12 compatible PyTorch and CuPy. The `visualization` extra installs OpenCV; `mujoco` installs MuJoCo integration dependencies; add `mjwarp` to use MJWarp. The GelSight Mini calibration files and letter press geometry are included in the package.
+HydroShear requires a working CUDA device and CUDA 12 compatible PyTorch and CuPy. In a checkout, install the runtime for each selected mode:
+
+```bash
+# MuJoCo physics and interactive/headless viewer
+uv sync --extra hydroshear --extra mujoco --extra visualization
+
+# MJWarp physics with the same viewer
+uv sync --extra hydroshear --extra mujoco --extra mjwarp --extra visualization
+```
+
+`--no-render` does not need the `visualization` extra. The GelSight Mini calibration files and letter press geometry are included in the package.
 
 ## Run
 
@@ -37,14 +47,16 @@ Run one HydroShear sample from a static MuJoCo scene:
 uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
 ```
 
-Run the letter press sequence with RGB, depth, and marker visualization:
+Run the same letter press sequence on either verified physics backend:
 
 ```bash
-uv run --extra hydroshear --extra visualization --extra mujoco \
-  python examples/letter_press/run.py --headless --output-dir outputs/letter_press
+uv run python examples/letter_press/run.py --backend mujoco
+uv run python examples/letter_press/run.py --backend mjwarp
 ```
 
-The example extracts collision geometry and a sensor site from UniSim, then calls HydroShear once with a fixed pose. For dynamic simulations, pass current body poses to `update_pose` before each `advance`.
+The default opens an interactive viewer. Add `--headless` to record an MP4 and phase screenshots, or `--no-render` to run physics and HydroShear without loading the RGB calibration or creating a renderer. Both modes accept `--frames`, `--device`, `--output-dir`, and `--mode rgb|depth`.
+
+The selected UniSim backend advances physics and provides body poses, collision geometry, site frames, and playback snapshots. The viewer renders those snapshots with MuJoCo as a detached visualization model; it never advances MuJoCo physics for an MJWarp run. MuJoCo and MJWarp have completed full-cycle validation. The letter model's mesh collision is not currently compatible with Motrix's convex-hull collision projection; the remaining backends do not yet expose the required UniSim tactile geometry/site APIs. HydroShear does not feed contact forces back into the physics backend.
 
 ## Public API
 

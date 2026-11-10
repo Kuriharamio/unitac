@@ -1130,7 +1130,7 @@ wheels = [
 [[package]]
 name = "unisim-core"
 version = "2.3.0"
-source = { git = "https://github.com/Kuriharamio/unisim.git?rev=9756131512930454e063f27ae9db3f374f55f9b6#9756131512930454e063f27ae9db3f374f55f9b6" }
+source = { git = "https://github.com/Kuriharamio/unisim.git?rev=f3f352a6f091aba6402adfd822814de688329d1e#f3f352a6f091aba6402adfd822814de688329d1e" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
@@ -1182,7 +1182,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.24" },
     { name = "opencv-python-headless", marker = "extra == 'visualization'", specifier = ">=4.11" },
     { name = "torch", marker = "extra == 'hydroshear'", specifier = ">=2.7,<2.10" },
-    { name = "unisim-core", git = "https://github.com/Kuriharamio/unisim.git?rev=9756131512930454e063f27ae9db3f374f55f9b6" },
+    { name = "unisim-core", git = "https://github.com/Kuriharamio/unisim.git?rev=f3f352a6f091aba6402adfd822814de688329d1e" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
 ]
 provides-extras = ["hydroshear", "visualization", "mujoco", "mjwarp"]

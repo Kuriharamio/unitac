@@ -34,7 +34,7 @@
 
     <body name="indenter" pos="0 0 0.0118">
       <joint name="press_joint" type="slide" axis="0 0 1"
-             range="-0.003 0.001" limited="true"/>
+             range="-0.003 0.003" limited="true"/>
       <joint name="rotate_joint" type="hinge" axis="0 0 1"
              range="-0.6 0.6" limited="true"/>
       <geom name="letter_geom" type="mesh" mesh="letter_mesh"
@@ -46,7 +46,7 @@
   </worldbody>
   <actuator>
     <position name="press_actuator" joint="press_joint" kp="30000" kv="120"
-              ctrlrange="-0.002 0" ctrllimited="true"/>
+              ctrlrange="-0.002 0.003" ctrllimited="true"/>
     <position name="rotate_actuator" joint="rotate_joint" kp="30000" kv="120"
               ctrlrange="0 0.5235987756" ctrllimited="true"/>
   </actuator>
