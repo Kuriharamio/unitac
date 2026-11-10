@@ -553,7 +553,7 @@ class HydroShearVisualizer:
         profile: CalibrationProfile = "taxim",
         calibration_dir: Path | str | None = None,
         pad: int | str = 0,
-        display_gain: float = 4.0,
+        display_gain: float = 10.0,
     ) -> None:
         if mode not in ("rgb", "displacement", "depth"):
             raise ValueError("mode must be 'rgb', 'displacement', or 'depth'")

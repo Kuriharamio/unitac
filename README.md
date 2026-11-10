@@ -32,9 +32,10 @@ Run with the bundled Taxim default:
 uv run --extra hydroshear --extra mujoco python examples/letter_press/run.py
 ```
 
-The interactive viewer opens on the overview camera with its left and right UI
-panels hidden; the tactile image is centered over the scene. Add `--headless`
-to record an MP4 instead.
+The interactive viewer opens at the overview angle with a movable free camera,
+its left and right UI panels hidden, and the tactile image centered along the
+right edge. The default arrow display gain is 10. Add `--headless` to record an
+MP4 instead.
 
 An optional external GelSight Mini profile is available for users who supply authorized TACSL files:
 

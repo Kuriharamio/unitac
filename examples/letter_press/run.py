@@ -433,8 +433,24 @@ def run_interactive(args: argparse.Namespace) -> None:
             )
             assert viewer is not None
             with viewer.lock():
-                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-                viewer.cam.fixedcamid = render_model.camera("overview").id
+                camera_id = render_model.camera("overview").id
+                camera_position = render_model.cam_pos[camera_id]
+                camera_rotation = render_model.cam_mat0[camera_id].reshape(3, 3)
+                camera_offset = camera_rotation[:, 2]
+                default_distance = 1.75 * float(render_model.stat.extent)
+                camera_distance = default_distance * np.tan(
+                    np.deg2rad(render_model.cam_fovy[camera_id] / 2)
+                ) / np.tan(np.deg2rad(render_model.vis.global_.fovy / 2))
+                camera_distance = max(float(camera_distance), 1e-3)
+                viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+                viewer.cam.lookat[:] = camera_position - camera_offset * camera_distance
+                viewer.cam.distance = camera_distance
+                viewer.cam.azimuth = float(
+                    np.degrees(np.arctan2(camera_offset[1], camera_offset[0])) % 360.0
+                )
+                viewer.cam.elevation = float(
+                    -np.degrees(np.arctan2(camera_offset[2], np.linalg.norm(camera_offset[:2])))
+                )
             simulation_steps = 0
             frame_index = 0
             last_sensor_cycle = 0
@@ -488,7 +504,7 @@ def run_interactive(args: argparse.Namespace) -> None:
                     viewer.set_images(
                         (
                             mujoco.MjrRect(
-                                viewport.left + (viewport.width - width) // 2,
+                                viewport.left + viewport.width - width - 10,
                                 viewport.bottom + (viewport.height - height) // 2,
                                 width,
                                 height,
@@ -570,7 +586,7 @@ def main() -> None:
     parser.add_argument(
         "--display-gain",
         type=float,
-        default=4.0,
+        default=10.0,
         help="visual arrow scale; does not change raw sensor displacement",
     )
     parser.add_argument(
