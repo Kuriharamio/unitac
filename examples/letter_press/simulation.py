@@ -200,11 +200,18 @@ class LetterPressSimulation:
         self._state_device = state["qpos"].device
         self._initial_qpos = state["qpos"].clone().contiguous()
         self._initial_qvel = state["qvel"].clone().contiguous()
-        if tuple(self._initial_qpos.shape) != (1, 2) or tuple(self._initial_qvel.shape) != (1, 2):
+        if (
+            self._initial_qpos.ndim != 2
+            or self._initial_qvel.ndim != 2
+            or self._initial_qpos.shape[0] != 1
+            or self._initial_qvel.shape[0] != 1
+            or self._initial_qpos.shape[1] < 2
+            or self._initial_qvel.shape[1] < 2
+        ):
             raise RuntimeError(
                 f"backend {self.backend_name!r} exposed state shapes "
                 f"{tuple(self._initial_qpos.shape)} and {tuple(self._initial_qvel.shape)}; "
-                "the letter scene requires two scalar joints"
+                "the letter scene requires one environment and two scalar joints"
             )
 
     def _body_poses(self) -> tuple[torch.Tensor, torch.Tensor]:

@@ -32,10 +32,13 @@ def test_letter_press_cycle_has_one_reset_boundary() -> None:
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="HydroShear requires CUDA")
-@pytest.mark.parametrize("backend_name", ("mujoco", "mjwarp"))
+@pytest.mark.parametrize("backend_name", ("mujoco", "mjwarp", "motrix"))
 def test_letter_press_no_render_smoke(backend_name: str, tmp_path, monkeypatch) -> None:
     pytest.importorskip("mujoco")
-    pytest.importorskip("mjbatch")
+    if backend_name == "motrix":
+        pytest.importorskip("motrixsim")
+    else:
+        pytest.importorskip("mjbatch")
     if backend_name == "mjwarp":
         pytest.importorskip("mujoco_warp")
 
@@ -58,4 +61,4 @@ def test_letter_press_no_render_smoke(backend_name: str, tmp_path, monkeypatch) 
     assert all(record["finite"] for record in records)
     assert all(record["contact_pixels"] is None for record in records)
     assert all(record["peak_depth_mm"] is None for record in records)
-    assert records[-1]["qpos"] == [0.0, 0.0]
+    assert records[-1]["qpos"][-2:] == [0.0, 0.0]

@@ -35,9 +35,12 @@ uv sync --extra hydroshear --extra mujoco --extra visualization
 
 # MJWarp physics with the same viewer
 uv sync --extra hydroshear --extra mujoco --extra mjwarp --extra visualization
+
+# Motrix physics without the renderer
+uv sync --extra hydroshear --extra motrix
 ```
 
-`--no-render` does not need the `visualization` extra. The GelSight Mini calibration files and letter press geometry are included in the package.
+`--no-render` does not need the `visualization` extra. Add `--extra visualization` to the Motrix install command when recording video or opening a viewer. The GelSight Mini calibration files and letter press geometry are included in the package.
 
 ## Run
 
@@ -52,11 +55,12 @@ Run the same letter press sequence on either verified physics backend:
 ```bash
 uv run python examples/letter_press/run.py --backend mujoco
 uv run python examples/letter_press/run.py --backend mjwarp
+uv run python examples/letter_press/run.py --backend motrix --no-render
 ```
 
 The default opens an interactive viewer. Add `--headless` to record an MP4 and phase screenshots, or `--no-render` to run physics and HydroShear without loading the RGB calibration or creating a renderer. Both modes accept `--frames`, `--device`, and `--output-dir`; rendered modes also accept `--mode rgb|depth`. No-render logs a CUDA-reduced displacement summary; it omits depth and contact-pixel metrics that require visualization snapshots.
 
-The selected UniSim backend advances physics and provides body poses, collision geometry, site frames, and playback snapshots. The viewer renders those snapshots with MuJoCo as a detached visualization model; it never advances MuJoCo physics for an MJWarp run. MuJoCo and MJWarp have completed full-cycle validation. The letter model's mesh collision is not currently compatible with Motrix's convex-hull collision projection; the remaining backends do not yet expose the required UniSim tactile geometry/site APIs. HydroShear does not feed contact forces back into the physics backend.
+The selected UniSim backend advances physics and provides body poses, collision geometry, site frames, and playback snapshots. The viewer renders those snapshots with MuJoCo as a detached visualization model; it never advances MuJoCo physics for an MJWarp run. MuJoCo, MJWarp, and Motrix have completed full-cycle no-render runs. Motrix supplies its compiled convex hull for the letter mesh, so HydroShear sees the same convex collision surface as Motrix. HydroShear does not feed contact forces back into the physics backend.
 
 ## Public API
 

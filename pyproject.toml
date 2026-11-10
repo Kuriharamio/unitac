@@ -13,13 +13,12 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10,<3.14"
 license-files = [
-    "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "licenses/HydroShear-MIT.txt",
 ]
 dependencies = [
     "numpy>=1.24",
-    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@f3f352a6f091aba6402adfd822814de688329d1e",
+    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@b0809b698e987257b1407a0440c275baaea2d7e9",
 ]
 keywords = ["physics", "simulation", "robotics", "tactile"]
 classifiers = [
@@ -37,6 +36,7 @@ hydroshear = ["torch>=2.7,<2.10", "cupy-cuda12x>=13.0"]
 visualization = ["opencv-python-headless>=4.11"]
 mujoco = ["mujoco~=3.11.0", "mjbatch-uni~=0.2.5"]
 mjwarp = ["mujoco-warp~=3.11.0", "warp-lang==1.16.0"]
+motrix = ["motrixsim-core==0.10.1", "mujoco~=3.11.0"]
 
 [dependency-groups]
 dev = ["pytest>=8.0", "ruff", "mypy", "pyright"]

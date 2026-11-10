@@ -6,7 +6,7 @@ UniTac 是面向 [UniSim](https://github.com/unilabsim/unisim) 的独立触觉�
 
 - 在 CUDA 上计算 HydroShear 触觉位移，支持调用者提供的闭合凝胶几何。
 - GelSight Mini 标定 RGB、深度和 marker 可视化。
-- 已在 UniSim MuJoCo 和 MJWarp 后端上验证 letter press 完整流程。
+- 已在 UniSim MuJoCo、MJWarp 和 Motrix 后端上验证 letter press 完整流程。
 
 HydroShear 位移是经验模型输出，不是物理长度。字段形状为 `(environment, sensor, row, column, xyz)`，单位标记为 `hydroshear_model_units`。相机压入深度单位为毫米。可视化使用经验系数 `0.05 mm/model unit` 将模型单位转换为显示位移；箭头 `display_gain` 只改变箭头。
 
@@ -25,6 +25,7 @@ uv add "unitac[hydroshear] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 uv add "unitac[hydroshear,visualization] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 uv add "unitac[hydroshear,mujoco] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 uv add "unitac[hydroshear,mujoco,mjwarp] @ git+https://github.com/Kuriharamio/UniTac.git@main"
+uv add "unitac[hydroshear,motrix] @ git+https://github.com/Kuriharamio/UniTac.git@main"
 ```
 
 HydroShear 需要可用的 CUDA 设备，以及兼容 CUDA 12 的 PyTorch 和 CuPy。在仓库检出目录中，为所选运行模式安装依赖：
@@ -35,9 +36,12 @@ uv sync --extra hydroshear --extra mujoco --extra visualization
 
 # 使用同一 viewer 的 MJWarp 物理仿真
 uv sync --extra hydroshear --extra mujoco --extra mjwarp --extra visualization
+
+# 不加载渲染器的 Motrix 物理仿真
+uv sync --extra hydroshear --extra motrix
 ```
 
-`--no-render` 不需要 `visualization` extra。GelSight Mini 标定文件和 letter press 几何已包含在安装包中。
+`--no-render` 不需要 `visualization` extra。Motrix 录制视频或打开 viewer 时，再添加 `--extra visualization`。GelSight Mini 标定文件和 letter press 几何已包含在安装包中。
 
 ## 运行
 
@@ -52,11 +56,12 @@ uv run --extra hydroshear --extra mujoco python examples/mujoco_backend.py
 ```bash
 uv run python examples/letter_press/run.py --backend mujoco
 uv run python examples/letter_press/run.py --backend mjwarp
+uv run python examples/letter_press/run.py --backend motrix --no-render
 ```
 
 默认模式会打开交互 viewer。添加 `--headless` 可录制 MP4 和各阶段截图；添加 `--no-render` 则只运行物理仿真与 HydroShear，不加载 RGB 标定数据，也不创建 renderer。这两种模式都支持 `--frames`、`--device` 和 `--output-dir`；只有渲染模式支持 `--mode rgb|depth`。无渲染模式会在 CUDA 上汇总位移标量；深度和接触像素指标需要可视化快照，因此不写入该模式的日志。
 
-选定的 UniSim 后端负责推进物理仿真，并提供 body 位姿、碰撞几何、site frame 和 playback snapshot。Viewer 使用 MuJoCo 将 snapshot 渲染为独立的可视化模型；运行 MJWarp 时不会推进 MuJoCo 物理仿真。MuJoCo 和 MJWarp 已通过完整周期验证。当前 letter 网格无法与 Motrix 的凸包碰撞投影保持一致；其余后端还未提供所需的 UniSim 触觉几何/site 公共 API。HydroShear 接触力不会反馈给物理后端。
+选定的 UniSim 后端负责推进物理仿真，并提供 body 位姿、碰撞几何、site frame 和 playback snapshot。Viewer 使用 MuJoCo 将 snapshot 渲染为独立的可视化模型；运行 MJWarp 时不会推进 MuJoCo 物理仿真。MuJoCo、MJWarp 和 Motrix 均已通过完整周期无渲染运行。Motrix 为 letter 网格提供编译后的凸包，因此 HydroShear 使用与 Motrix 相同的碰撞表面。HydroShear 接触力不会反馈给物理后端。
 
 ## 公共 API
 
