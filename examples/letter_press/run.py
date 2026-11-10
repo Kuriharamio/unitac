@@ -15,17 +15,17 @@ if __package__:
     from .simulation import (
         CYCLE_FRAMES,
         LetterPressSimulation,
-        observation_metrics,
         phase_target,
         scene_files,
+        tensor_observation_metrics,
     )
 else:
     from simulation import (
         CYCLE_FRAMES,
         LetterPressSimulation,
-        observation_metrics,
         phase_target,
         scene_files,
+        tensor_observation_metrics,
     )
 
 
@@ -34,10 +34,7 @@ def _write_reset_record(simulation: LetterPressSimulation, metrics_file: Any) ->
     state = simulation.reset()
     reset_ms = (time.perf_counter() - started) * 1000.0
     assert simulation.sensor is not None
-    snapshot = simulation.sensor.read_visualization_snapshot(env_id=0)
-    observed = observation_metrics(
-        snapshot.displacement[0], snapshot.depth_mm[0], snapshot.generation
-    )
+    observed = tensor_observation_metrics(simulation.sensor.read()["displacement"])
     record = {
         "backend": simulation.backend_name,
         "phase": "Reset",
@@ -73,10 +70,7 @@ def run_no_render(
             stats = simulation.advance_frame(target)
             diagnostics_started = time.perf_counter()
             assert simulation.sensor is not None
-            snapshot = simulation.sensor.read_visualization_snapshot(env_id=0)
-            observed = observation_metrics(
-                snapshot.displacement[0], snapshot.depth_mm[0], snapshot.generation
-            )
+            observed = tensor_observation_metrics(simulation.sensor.read()["displacement"])
             diagnostics_ms = (time.perf_counter() - diagnostics_started) * 1000.0
             record = {
                 "backend": simulation.backend_name,

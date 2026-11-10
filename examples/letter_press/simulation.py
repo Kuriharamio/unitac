@@ -372,3 +372,30 @@ def observation_metrics(
         "generation": int(generation),
         "finite": bool(np.isfinite(raw).all() and np.isfinite(depth).all()),
     }
+
+
+def tensor_observation_metrics(displacement: torch.Tensor) -> dict[str, Any]:
+    """Reduce the public CUDA observation to a few scalars for no-render logs."""
+    raw = displacement[0].to(dtype=torch.float32)
+    magnitude = torch.linalg.vector_norm(raw, dim=-1)
+    tangent = torch.linalg.vector_norm(raw[..., :2], dim=-1)
+    mean = raw.mean(dim=(0, 1, 2))
+    summary = torch.stack(
+        (
+            torch.isfinite(raw).all().to(dtype=torch.float32),
+            magnitude.max(),
+            tangent.max(),
+            mean[0],
+            mean[1],
+            mean[2],
+        )
+    ).detach().cpu().tolist()
+    return {
+        "contact_pixels": None,
+        "peak_depth_mm": None,
+        "peak_displacement_model_units": float(summary[1]),
+        "peak_tangential_displacement_model_units": float(summary[2]),
+        "mean_displacement_model_units": [float(value) for value in summary[3:]],
+        "mean_tangential_displacement_model_units": [float(value) for value in summary[3:5]],
+        "finite": bool(summary[0]),
+    }

@@ -33,7 +33,7 @@ def test_letter_press_cycle_has_one_reset_boundary() -> None:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="HydroShear requires CUDA")
 @pytest.mark.parametrize("backend_name", ("mujoco", "mjwarp"))
-def test_letter_press_no_render_smoke(backend_name: str, tmp_path) -> None:
+def test_letter_press_no_render_smoke(backend_name: str, tmp_path, monkeypatch) -> None:
     pytest.importorskip("mujoco")
     pytest.importorskip("mjbatch")
     if backend_name == "mjwarp":
@@ -41,6 +41,12 @@ def test_letter_press_no_render_smoke(backend_name: str, tmp_path) -> None:
 
     with scene_files() as xml_path:
         with LetterPressSimulation(backend_name, xml_path, "cuda:0") as simulation:
+            assert simulation.sensor is not None
+            monkeypatch.setattr(
+                simulation.sensor,
+                "read_visualization_snapshot",
+                lambda **_kwargs: pytest.fail("no-render must not read visualization snapshots"),
+            )
             result = run_no_render(simulation, frames=2, output_dir=tmp_path)
 
     assert result["backend"] == backend_name
@@ -50,4 +56,6 @@ def test_letter_press_no_render_smoke(backend_name: str, tmp_path) -> None:
     records = [json.loads(line) for line in (tmp_path / "metrics.jsonl").read_text().splitlines()]
     assert [record["phase"] for record in records] == ["Reset", "Approach", "Approach", "Reset"]
     assert all(record["finite"] for record in records)
+    assert all(record["contact_pixels"] is None for record in records)
+    assert all(record["peak_depth_mm"] is None for record in records)
     assert records[-1]["qpos"] == [0.0, 0.0]

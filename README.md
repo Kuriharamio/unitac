@@ -54,7 +54,7 @@ uv run python examples/letter_press/run.py --backend mujoco
 uv run python examples/letter_press/run.py --backend mjwarp
 ```
 
-The default opens an interactive viewer. Add `--headless` to record an MP4 and phase screenshots, or `--no-render` to run physics and HydroShear without loading the RGB calibration or creating a renderer. Both modes accept `--frames`, `--device`, `--output-dir`, and `--mode rgb|depth`.
+The default opens an interactive viewer. Add `--headless` to record an MP4 and phase screenshots, or `--no-render` to run physics and HydroShear without loading the RGB calibration or creating a renderer. Both modes accept `--frames`, `--device`, and `--output-dir`; rendered modes also accept `--mode rgb|depth`. No-render logs a CUDA-reduced displacement summary; it omits depth and contact-pixel metrics that require visualization snapshots.
 
 The selected UniSim backend advances physics and provides body poses, collision geometry, site frames, and playback snapshots. The viewer renders those snapshots with MuJoCo as a detached visualization model; it never advances MuJoCo physics for an MJWarp run. MuJoCo and MJWarp have completed full-cycle validation. The letter model's mesh collision is not currently compatible with Motrix's convex-hull collision projection; the remaining backends do not yet expose the required UniSim tactile geometry/site APIs. HydroShear does not feed contact forces back into the physics backend.
 

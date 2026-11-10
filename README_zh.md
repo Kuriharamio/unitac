@@ -54,7 +54,7 @@ uv run python examples/letter_press/run.py --backend mujoco
 uv run python examples/letter_press/run.py --backend mjwarp
 ```
 
-默认模式会打开交互 viewer。添加 `--headless` 可录制 MP4 和各阶段截图；添加 `--no-render` 则只运行物理仿真与 HydroShear，不加载 RGB 标定数据，也不创建 renderer。这两种模式都支持 `--frames`、`--device`、`--output-dir` 和 `--mode rgb|depth`。
+默认模式会打开交互 viewer。添加 `--headless` 可录制 MP4 和各阶段截图；添加 `--no-render` 则只运行物理仿真与 HydroShear，不加载 RGB 标定数据，也不创建 renderer。这两种模式都支持 `--frames`、`--device` 和 `--output-dir`；只有渲染模式支持 `--mode rgb|depth`。无渲染模式会在 CUDA 上汇总位移标量；深度和接触像素指标需要可视化快照，因此不写入该模式的日志。
 
 选定的 UniSim 后端负责推进物理仿真，并提供 body 位姿、碰撞几何、site frame 和 playback snapshot。Viewer 使用 MuJoCo 将 snapshot 渲染为独立的可视化模型；运行 MJWarp 时不会推进 MuJoCo 物理仿真。MuJoCo 和 MJWarp 已通过完整周期验证。当前 letter 网格无法与 Motrix 的凸包碰撞投影保持一致；其余后端还未提供所需的 UniSim 触觉几何/site 公共 API。HydroShear 接触力不会反馈给物理后端。
 
