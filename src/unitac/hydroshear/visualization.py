@@ -19,7 +19,7 @@ from .depth import (
 )
 from .sensor import HydroShearVisualizationSnapshot
 
-VisualizationMode = Literal["rgb", "displacement", "depth"]
+VisualizationMode = Literal["rgb", "depth"]
 CalibrationProfile = Literal["taxim", "gelsight_mini"]
 
 _TAXIM_FILES = ("polycalib.npz", "dataPack.npz")
@@ -28,6 +28,11 @@ _GELSIGHT_MINI_FILES = (
     "mmint_gs_mini_2D9C-N227_07072025_bg_R_no_dots.png",
     "mmint_bg.jpg",
 )
+_GEL_WIDTH_MM = 20.75
+_GEL_HEIGHT_MM = 25.25
+_MARKER_DISPLACEMENT_SCALE_MM = 0.05
+_MARKER_ARROW_MIN_PIXELS = 1.5
+_MARKER_ARROW_TIP_LENGTH = 0.16
 
 
 def _calibration_normals(height_pixels: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -130,6 +135,35 @@ def _depth_in_native_pixels(
     )
 
 
+def _gelsight_mini_depth_native_mm(
+    depth_mm: np.ndarray,
+    *,
+    width: int,
+    height: int,
+    pixel_scale_mm: float,
+    gel_width_mm: float,
+    gel_height_mm: float,
+    cv2: Any,
+) -> np.ndarray:
+    """Crop the Mini's calibrated active area and resize it to camera pixels."""
+    depth = np.asarray(depth_mm, dtype=np.float32)
+    if depth.shape != (DEPTH_H, DEPTH_W):
+        raise ValueError(f"depth image must have shape {(DEPTH_H, DEPTH_W)}, got {depth.shape}")
+    active_width_mm = width * pixel_scale_mm
+    active_height_mm = height * pixel_scale_mm
+    source_h, source_w = depth.shape
+    crop_w = max(2, int(round(source_w * active_width_mm / gel_width_mm)))
+    crop_h = max(2, int(round(source_h * active_height_mm / gel_height_mm)))
+    x0 = max(0, (source_w - crop_w) // 2)
+    y0 = max(0, (source_h - crop_h) // 2)
+    active_depth = cv2.resize(
+        depth[y0 : y0 + crop_h, x0 : x0 + crop_w],
+        (width, height),
+        interpolation=cv2.INTER_LINEAR,  # type: ignore[attr-defined]
+    )
+    return np.asarray(active_depth, dtype=np.float32)
+
+
 def _smooth_resampled_height(
     height_pixels: np.ndarray, *, pixel_scale_mm: float, cv2: Any
 ) -> np.ndarray:
@@ -187,8 +221,20 @@ def _draw_synthetic_markers(
     rest_x, rest_y = _marker_pixel_grid(
         positions, width=image.shape[1], height=image.shape[0], pixel_scale_mm=pixel_scale_mm
     )
-    current_x = rest_x + displacement[..., 0] * displacement_gain / pixel_scale_mm
-    current_y = rest_y + displacement[..., 1] * displacement_gain / pixel_scale_mm
+    current_x = (
+        rest_x
+        + displacement[..., 0]
+        * _MARKER_DISPLACEMENT_SCALE_MM
+        * displacement_gain
+        / pixel_scale_mm
+    )
+    current_y = (
+        rest_y
+        + displacement[..., 1]
+        * _MARKER_DISPLACEMENT_SCALE_MM
+        * displacement_gain
+        / pixel_scale_mm
+    )
     for row in range(displacement.shape[0]):
         for col in range(displacement.shape[1]):
             start = (int(round(rest_x[row, col])), int(round(rest_y[row, col])))
@@ -204,8 +250,10 @@ def _draw_displacement_vectors(
     image: np.ndarray,
     displacement_mm: np.ndarray,
     marker_positions_mm: np.ndarray,
+    depth_mm: np.ndarray,
     *,
-    pixel_scale_mm: float,
+    active_width_mm: float,
+    active_height_mm: float,
     display_gain: float,
     cv2: Any,
 ) -> np.ndarray:
@@ -221,37 +269,59 @@ def _draw_displacement_vectors(
         )
     if not np.isfinite(display_gain) or display_gain < 0:
         raise ValueError("display_gain must be finite and nonnegative")
+    depth = np.asarray(depth_mm, dtype=np.float32)
+    if depth.ndim != 2:
+        raise ValueError("depth image must be two-dimensional")
+    if (
+        not np.isfinite(active_width_mm)
+        or not np.isfinite(active_height_mm)
+        or active_width_mm <= 0
+        or active_height_mm <= 0
+    ):
+        raise ValueError("active image dimensions must be positive and finite")
     image = image.copy()
-    px, py = _marker_pixel_grid(
-        positions, width=image.shape[1], height=image.shape[0], pixel_scale_mm=pixel_scale_mm
+    image_h, image_w = image.shape[:2]
+    depth_h, depth_w = depth.shape
+    display_displacement = displacement[..., :2] * _MARKER_DISPLACEMENT_SCALE_MM
+    markers_display = positions[..., :2] + display_displacement
+    marker_u = (markers_display[..., 0] / active_width_mm + 0.5) * depth_w
+    marker_v = (markers_display[..., 1] / active_height_mm + 0.5) * depth_h
+    pu = np.clip(np.rint(marker_u), 0, depth_w - 1).astype(np.intp)
+    pv = np.clip(np.rint(marker_v), 0, depth_h - 1).astype(np.intp)
+    indent_markers = depth[pv, pu]
+    start_x = (markers_display[..., 0] / active_width_mm + 0.5) * image_w
+    start_y = (markers_display[..., 1] / active_height_mm + 0.5) * image_h
+    delta_x = (
+        display_displacement[..., 0] * display_gain * image_w / active_width_mm
     )
-    vectors = displacement[..., :2] * display_gain / pixel_scale_mm
-    for row in range(displacement.shape[0]):
-        for col in range(displacement.shape[1]):
-            start = (int(round(px[row, col])), int(round(py[row, col])))
-            end = (
-                int(round(px[row, col] + vectors[row, col, 0])),
-                int(round(py[row, col] + vectors[row, col, 1])),
-            )
-            cv2.arrowedLine(  # type: ignore[attr-defined]
-                image,
-                start,
-                end,
-                (25, 25, 25),
-                2,
-                cv2.LINE_AA,
-                tipLength=0.25,  # type: ignore[attr-defined]
-            )
-            cv2.arrowedLine(  # type: ignore[attr-defined]
-                image,
-                start,
-                end,
-                (0, 255, 0),
-                1,
-                cv2.LINE_AA,
-                tipLength=0.25,  # type: ignore[attr-defined]
-            )
-            cv2.circle(image, start, 3, (255, 230, 40), -1, cv2.LINE_AA)  # type: ignore[attr-defined]
+    delta_y = (
+        display_displacement[..., 1] * display_gain * image_h / active_height_mm
+    )
+    arrow_length = np.hypot(delta_x, delta_y)
+    keep = (indent_markers < -0.05) & (arrow_length >= _MARKER_ARROW_MIN_PIXELS)
+    start = np.rint(np.stack((start_x[keep], start_y[keep]), axis=-1)).astype(np.intp)
+    end = np.rint(
+        np.stack((start_x[keep] + delta_x[keep], start_y[keep] + delta_y[keep]), axis=-1)
+    ).astype(np.intp)
+    for (x0, y0), (x1, y1) in zip(start, end, strict=True):
+        cv2.arrowedLine(
+            image,
+            (int(x0), int(y0)),
+            (int(x1), int(y1)),
+            (30, 30, 30),
+            2,
+            cv2.LINE_AA,
+            tipLength=_MARKER_ARROW_TIP_LENGTH,
+        )
+        cv2.arrowedLine(
+            image,
+            (int(x0), int(y0)),
+            (int(x1), int(y1)),
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA,
+            tipLength=_MARKER_ARROW_TIP_LENGTH,
+        )
     return image
 
 
@@ -281,7 +351,7 @@ class TaximRenderer:
     height = 480
     pixel_scale_mm = 0.0295
     calibration_label = "Taxim-calibrated GelSight RGB"
-    marker_label = "Synthetic marker overlay"
+    marker_label = "Synthetic dots + HydroShear arrows"
 
     def __init__(self) -> None:
         import cv2
@@ -362,22 +432,6 @@ class TaximRenderer:
             cv2=self._cv2,
         )
 
-    def render_displacement(
-        self,
-        displacement_mm: np.ndarray,
-        marker_positions_mm: np.ndarray,
-        *,
-        display_gain: float = 1.0,
-    ) -> np.ndarray:
-        return _draw_displacement_vectors(
-            self.background,
-            displacement_mm,
-            marker_positions_mm,
-            pixel_scale_mm=self.pixel_scale_mm,
-            display_gain=display_gain,
-            cv2=self._cv2,
-        )
-
     def render_depth(self, depth_mm: np.ndarray) -> np.ndarray:
         depth_native = self.depth_native_mm(depth_mm)
         depth_min = min(float(depth_native.min()), -0.1)
@@ -394,8 +448,10 @@ class GelSightMiniRenderer:
     width = 240
     height = 320
     pixel_scale_mm = 0.065
+    gel_width_mm = _GEL_WIDTH_MM
+    gel_height_mm = _GEL_HEIGHT_MM
     calibration_label = "GelSight Mini-calibrated RGB"
-    marker_label = "Camera dots; motion from HydroShear displacement"
+    marker_label = "Camera dots + HydroShear arrows"
 
     def __init__(self, calibration_dir: Path | str | None = None) -> None:
         import cv2
@@ -432,11 +488,13 @@ class GelSightMiniRenderer:
         )
 
     def depth_native_mm(self, depth_mm: np.ndarray) -> np.ndarray:
-        return _depth_in_native_pixels(
+        return _gelsight_mini_depth_native_mm(
             depth_mm,
             width=self.width,
             height=self.height,
             pixel_scale_mm=self.pixel_scale_mm,
+            gel_width_mm=self.gel_width_mm,
+            gel_height_mm=self.gel_height_mm,
             cv2=self._cv2,
         )
 
@@ -453,33 +511,12 @@ class GelSightMiniRenderer:
             raise ValueError(
                 "marker positions and displacement must have matching (rows, cols, 3) grids"
             )
-        x_grid = positions[0, :, 0]
-        y_grid = positions[:, 0, 1]
-        if x_grid.size < 2 or y_grid.size < 2:
-            raise ValueError("GelSight Mini marker grid must have at least two rows and columns")
-        spacing_x = float(np.mean(np.diff(x_grid)))
-        spacing_y = float(np.mean(np.diff(y_grid)))
-        if spacing_x <= 0 or spacing_y <= 0:
-            raise ValueError("marker positions must increase along sensor-local x and y")
-        x_mm = (np.arange(self.width) - (self.width - 1) / 2) * self.pixel_scale_mm
-        y_mm = (np.arange(self.height) - (self.height - 1) / 2) * self.pixel_scale_mm
-        map_x = np.broadcast_to(
-            ((x_mm - x_grid[0]) / spacing_x)[None, :], (self.height, self.width)
-        ).copy()
-        map_y = np.broadcast_to(
-            ((y_mm - y_grid[0]) / spacing_y)[:, None], (self.height, self.width)
-        ).copy()
-        field = np.empty((self.height, self.width, 2), dtype=np.float32)
-        for axis in range(2):
-            field[..., axis] = self._cv2.remap(
-                displacement[..., axis],
-                map_x.astype(np.float32, copy=False),
-                map_y.astype(np.float32, copy=False),
-                interpolation=self._cv2.INTER_LINEAR,
-                borderMode=self._cv2.BORDER_CONSTANT,
-                borderValue=0.0,
-            )
-        return field
+        field = self._cv2.resize(
+            displacement[..., :2],
+            (self.width, self.height),
+            interpolation=self._cv2.INTER_LINEAR,
+        )
+        return np.asarray(field, dtype=np.float32) * _MARKER_DISPLACEMENT_SCALE_MM
 
     def render_rgb(
         self,
@@ -490,10 +527,12 @@ class GelSightMiniRenderer:
         displacement_gain: float = 1.0,
     ) -> np.ndarray:
         depth_native = self.depth_native_mm(depth_mm)
-        height_pixels = _smooth_resampled_height(
-            -depth_native / self.pixel_scale_mm,
-            pixel_scale_mm=self.pixel_scale_mm,
-            cv2=self._cv2,
+        height_pixels = -depth_native
+        height_pixels[np.abs(height_pixels) < 1e-6] = 0.0
+        height_pixels = self._cv2.GaussianBlur(
+            (height_pixels * 1000.0 / self.pixel_scale_mm).astype(np.float32),
+            (5, 5),
+            0,
         )
         magnitude, direction = _calibration_normals(height_pixels)
         ix = np.clip(
@@ -513,8 +552,12 @@ class GelSightMiniRenderer:
             self.background.astype(np.float32) + np.stack(channels, axis=-1), 0.0, 255.0
         ).astype(np.uint8)
         field = self._marker_displacement_field(displacement_mm, marker_positions_mm)
-        map_x = self._pixel_x - field[..., 0] * displacement_gain / self.pixel_scale_mm
-        map_y = self._pixel_y - field[..., 1] * displacement_gain / self.pixel_scale_mm
+        map_x = self._pixel_x - (
+            field[..., 0] * displacement_gain * self.width / self.gel_width_mm
+        )
+        map_y = self._pixel_y - (
+            field[..., 1] * displacement_gain * self.height / self.gel_height_mm
+        )
         warped = self._cv2.remap(
             self._marker_delta,
             map_x.astype(np.float32),
@@ -523,22 +566,6 @@ class GelSightMiniRenderer:
             borderMode=self._cv2.BORDER_CONSTANT,
         )
         return np.clip(image.astype(np.float32) + warped, 0.0, 255.0).astype(np.uint8)
-
-    def render_displacement(
-        self,
-        displacement_mm: np.ndarray,
-        marker_positions_mm: np.ndarray,
-        *,
-        display_gain: float = 1.0,
-    ) -> np.ndarray:
-        return _draw_displacement_vectors(
-            self.marker_background,
-            displacement_mm,
-            marker_positions_mm,
-            pixel_scale_mm=self.pixel_scale_mm,
-            display_gain=display_gain,
-            cv2=self._cv2,
-        )
 
     def render_depth(self, depth_mm: np.ndarray) -> np.ndarray:
         depth_native = self.depth_native_mm(depth_mm)
@@ -560,10 +587,10 @@ class HydroShearVisualizer:
         profile: CalibrationProfile = "gelsight_mini",
         calibration_dir: Path | str | None = None,
         pad: int | str = 0,
-        display_gain: float = 10.0,
+        display_gain: float = 4.0,
     ) -> None:
-        if mode not in ("rgb", "displacement", "depth"):
-            raise ValueError("mode must be 'rgb', 'displacement', or 'depth'")
+        if mode not in ("rgb", "depth"):
+            raise ValueError("mode must be 'rgb' or 'depth'")
         if not np.isfinite(display_gain) or display_gain < 0:
             raise ValueError("display_gain must be finite and nonnegative")
         if profile == "taxim":
@@ -592,19 +619,25 @@ class HydroShearVisualizer:
         if self._closed:
             raise RuntimeError("visualizer is closed")
         selected_mode = self.mode if mode is None else mode
-        if selected_mode not in ("rgb", "displacement", "depth"):
-            raise ValueError("mode must be 'rgb', 'displacement', or 'depth'")
+        if selected_mode not in ("rgb", "depth"):
+            raise ValueError("mode must be 'rgb' or 'depth'")
         snapshot = sensor.read_visualization_snapshot(env_id)  # type: ignore[attr-defined]
         pad_index = self._resolve_pad(snapshot, self.pad if pad is None else pad)
         raw = np.asarray(snapshot.displacement_mm[pad_index], dtype=np.float32)
-        display = raw * self.display_gain
+        display = raw * _MARKER_DISPLACEMENT_SCALE_MM
         depth = np.asarray(snapshot.depth_mm[pad_index], dtype=np.float32)
         marker_positions = np.asarray(snapshot.marker_positions_mm, dtype=np.float32)
         if selected_mode == "rgb":
             image = self.renderer.render_rgb(depth, raw, marker_positions, displacement_gain=1.0)
-        elif selected_mode == "displacement":
-            image = self.renderer.render_displacement(
-                raw, marker_positions, display_gain=self.display_gain
+            image = _draw_displacement_vectors(
+                image,
+                raw,
+                marker_positions,
+                depth,
+                active_width_mm=self.renderer.width * self.renderer.pixel_scale_mm,
+                active_height_mm=self.renderer.height * self.renderer.pixel_scale_mm,
+                display_gain=self.display_gain,
+                cv2=self.renderer._cv2,
             )
         else:
             image = self.renderer.render_depth(depth)
@@ -632,8 +665,8 @@ class HydroShearVisualizer:
         return frame
 
     def set_mode(self, mode: VisualizationMode) -> None:
-        if mode not in ("rgb", "displacement", "depth"):
-            raise ValueError("mode must be 'rgb', 'displacement', or 'depth'")
+        if mode not in ("rgb", "depth"):
+            raise ValueError("mode must be 'rgb' or 'depth'")
         self.mode = mode
 
     def set_display_gain(self, gain: float) -> None:

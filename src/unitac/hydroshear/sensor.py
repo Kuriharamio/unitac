@@ -243,12 +243,8 @@ class HydroShearSensor(TactileSensor):
 
         self._depth_renderer = DepthRenderer(flat_batch)
 
-        x_mm = (
-            np.arange(self._config.cols, dtype=np.float32) - (self._config.cols - 1) / 2
-        ) * self._config.spacing_mm[0] + self._config.center_offset_mm[0]
-        y_mm = (
-            np.arange(self._config.rows, dtype=np.float32) - (self._config.rows - 1) / 2
-        ) * self._config.spacing_mm[1] + self._config.center_offset_mm[1]
+        x_mm = np.asarray(self._config.marker_x_mm, dtype=np.float32)
+        y_mm = np.asarray(self._config.marker_y_mm, dtype=np.float32)
         yy, xx = np.meshgrid(y_mm / 1000.0, x_mm / 1000.0, indexing="ij")
         markers = np.stack((xx, yy, np.zeros_like(xx)), axis=-1).reshape(-1, 3)
         self._marker_positions_mm = np.array(

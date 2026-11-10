@@ -118,6 +118,9 @@ def _build_simulation(xml_path: Path, device: str):
                 "cols": 7,
                 "spacing_mm": [2.145, 2.153125],
                 "center_offset_mm": [-0.3575, -0.325],
+                # Match HydroShear's measured dot centers, not a uniform-grid approximation.
+                "marker_x_pixels": [15, 49, 81, 115, 146, 179, 213],
+                "marker_y_pixels": [22, 57, 91, 125, 158, 191, 223, 255, 287],
                 "pixel_scale_mm": 0.065,
             },
             "solver": {"use_fft_dilation": False, "use_matmul_shear": True},
@@ -409,8 +412,10 @@ def run_interactive(args: argparse.Namespace) -> None:
             state["restart"] = True
         elif keycode in (ord("n"), ord("N"), ord(".")):
             state["single_step"] = True
-        elif keycode in (ord("1"), ord("2"), ord("3")):
-            visualizer.set_mode(("rgb", "displacement", "depth")[keycode - ord("1")])
+        elif keycode == ord("1"):
+            visualizer.set_mode("rgb")
+        elif keycode == ord("2"):
+            visualizer.set_mode("depth")
 
     with _scene_files() as xml_path:
         backend, sensor, pose_plan, initial_qpos, initial_qvel = _build_simulation(
@@ -582,11 +587,11 @@ def main() -> None:
         type=Path,
         help="optional GelSight Mini calibration override; requires --profile gelsight_mini",
     )
-    parser.add_argument("--mode", choices=("rgb", "displacement", "depth"), default="rgb")
+    parser.add_argument("--mode", choices=("rgb", "depth"), default="rgb")
     parser.add_argument(
         "--display-gain",
         type=float,
-        default=10.0,
+        default=4.0,
         help="visual arrow scale; does not change raw sensor displacement",
     )
     parser.add_argument(

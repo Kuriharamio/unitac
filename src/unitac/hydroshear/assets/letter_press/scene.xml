@@ -25,7 +25,7 @@
     <body name="pad" pos="0 0 0">
       <geom name="gel_collision" type="mesh" mesh="gelsight_mini_gel"
             pos="0.0005 0.05975 0.00725" material="gel_material"
-            contype="1" conaffinity="1" solref="0.05 1" solimp="0.7 0.95 0.005"/>
+            contype="0" conaffinity="0" solref="0.5 1" solimp="0.7 0.95 0.005"/>
       <geom name="pad_support" type="box" pos="0 0 -0.007"
             size="0.012 0.014 0.003" rgba="0.16 0.20 0.25 1"
             contype="0" conaffinity="0"/>

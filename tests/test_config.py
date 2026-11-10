@@ -18,6 +18,48 @@ def test_hydroshear_config_validates_and_freezes_closed_gel_mesh():
     assert not config.gel_triangles.flags.writeable
 
 
+def test_config_maps_calibrated_camera_marker_centers_to_gel_millimetres():
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    config = HydroShearConfig.from_mapping(
+        {
+            "gel_mesh": gel,
+            "output_grid": {
+                "rows": 9,
+                "cols": 7,
+                "marker_x_pixels": [15, 49, 81, 115, 146, 179, 213],
+                "marker_y_pixels": [22, 57, 91, 125, 158, 191, 223, 255, 287],
+                "pixel_scale_mm": 0.065,
+            },
+        }
+    )
+    np.testing.assert_allclose(
+        config.marker_x_mm,
+        [-6.7925, -4.5825, -2.5025, -0.2925, 1.7225, 3.8675, 6.0775],
+    )
+    np.testing.assert_allclose(
+        config.marker_y_mm,
+        [-8.9375, -6.6625, -4.4525, -2.2425, -0.0975, 2.0475, 4.1275, 6.2075, 8.2875],
+    )
+
+
+@pytest.mark.parametrize(
+    "output_grid",
+    [
+        {"rows": 9, "cols": 7, "marker_x_pixels": [15, 49, 81, 115, 146, 179, 213]},
+        {
+            "rows": 9,
+            "cols": 7,
+            "marker_x_pixels": [15, 49, 81, 115, 146, 179, 213],
+            "marker_y_pixels": [22, 57, 91, 125, 158, 191, 223, 255, 287, 300],
+        },
+    ],
+)
+def test_config_rejects_incomplete_or_wrong_sized_marker_pixel_axes(output_grid):
+    gel = box_triangles((0.010, 0.012625, 0.003))
+    with pytest.raises(ValueError, match="marker_x_pixels|marker_y_pixels"):
+        HydroShearConfig.from_mapping({"gel_mesh": gel, "output_grid": output_grid})
+
+
 def test_gel_mesh_rejects_open_nonfinite_and_degenerate_triangles():
     closed_mesh = box_triangles((0.010, 0.012625, 0.003))
     with pytest.raises(ValueError, match="closed two-manifold"):

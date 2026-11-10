@@ -3,6 +3,15 @@ HydroShear, Copyright (c) 2026 MMintLab, under the MIT License. The source
 reference is commit `26403177779c4f74689761c041fa9580b075dc08` on branch
 `unimanip-api`. The license text is in `licenses/HydroShear-MIT.txt`.
 
+The GelSight Mini visualization follows the independently implemented
+calibration crop, marker warp, and contact-filtered arrow display in
+`examples/hydroshear_viewer/gelsight_mini.py` and
+`examples/hydroshear_viewer/overlay.py` from HydroShear commit
+`8a007f610e42d669dabb50bf8bcf62ecbd7c0660` on branch `perf/sdf`.
+Copyright (c) 2026 MMintLab; covered by the same MIT License. UniTac keeps an
+independent implementation and does not include the separately proprietary
+NVIDIA renderer noted below.
+
 The test and benchmark fixture
 `tests/fixtures/gsmini_elastomer_collision_512.obj` is the original HydroShear
 GelSight Mini collision mesh, Copyright (c) 2026 MMintLab, from the same MIT-

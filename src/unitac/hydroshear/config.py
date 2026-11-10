@@ -39,6 +39,8 @@ class HydroShearConfig:
     cols: int
     spacing_mm: tuple[float, float]
     center_offset_mm: tuple[float, float]
+    marker_x_mm: tuple[float, ...]
+    marker_y_mm: tuple[float, ...]
     pixel_scale_mm: float
     solver: Mapping[str, Any]
     device: str
@@ -64,7 +66,15 @@ class HydroShearConfig:
         grid = config.get("output_grid", {})
         if not isinstance(grid, Mapping):
             raise TypeError("output_grid must be a mapping")
-        grid_allowed = {"rows", "cols", "spacing_mm", "center_offset_mm", "pixel_scale_mm"}
+        grid_allowed = {
+            "rows",
+            "cols",
+            "spacing_mm",
+            "center_offset_mm",
+            "marker_x_pixels",
+            "marker_y_pixels",
+            "pixel_scale_mm",
+        }
         unknown_grid = set(grid) - grid_allowed
         if unknown_grid:
             raise ValueError(f"unknown output_grid keys: {sorted(unknown_grid)}")
@@ -73,8 +83,26 @@ class HydroShearConfig:
         spacing = _pair(grid.get("spacing_mm", (2.145, 2.153125)), "spacing_mm")
         offset = _pair(grid.get("center_offset_mm", (-0.3575, -0.325)), "center_offset_mm")
         pixel_scale = _positive_float(grid.get("pixel_scale_mm", 0.065), "pixel_scale_mm")
-        x = (np.arange(cols, dtype=np.float64) - (cols - 1) / 2) * spacing[0] + offset[0]
-        y = (np.arange(rows, dtype=np.float64) - (rows - 1) / 2) * spacing[1] + offset[1]
+        marker_x_pixels = grid.get("marker_x_pixels")
+        marker_y_pixels = grid.get("marker_y_pixels")
+        if (marker_x_pixels is None) != (marker_y_pixels is None):
+            raise ValueError(
+                "output_grid.marker_x_pixels and marker_y_pixels must be provided together"
+            )
+        if marker_x_pixels is None:
+            x = (
+                (np.arange(cols, dtype=np.float64) - (cols - 1) / 2) * spacing[0]
+                + offset[0]
+            )
+            y = (
+                (np.arange(rows, dtype=np.float64) - (rows - 1) / 2) * spacing[1]
+                + offset[1]
+            )
+        else:
+            x_pixels = _marker_pixels(marker_x_pixels, cols, CAMERA_W, "marker_x_pixels")
+            y_pixels = _marker_pixels(marker_y_pixels, rows, CAMERA_H, "marker_y_pixels")
+            x = (x_pixels - (CAMERA_W - 1) / 2) * pixel_scale
+            y = (y_pixels - (CAMERA_H - 1) / 2) * pixel_scale
         pixel_x = x / pixel_scale + (CAMERA_W - 1) / 2
         pixel_y = y / pixel_scale + (CAMERA_H - 1) / 2
         if (
@@ -154,6 +182,8 @@ class HydroShearConfig:
             cols=cols,
             spacing_mm=spacing,
             center_offset_mm=offset,
+            marker_x_mm=tuple(float(value) for value in x),
+            marker_y_mm=tuple(float(value) for value in y),
             pixel_scale_mm=pixel_scale,
             solver=solver,
             device=device,
@@ -173,6 +203,23 @@ def _positive_float(value: Any, name: str) -> float:
     if not np.isfinite(result) or result <= 0:
         raise ValueError(f"{name} must be positive and finite")
     return result
+
+
+def _marker_pixels(value: Any, count: int, limit: int, name: str) -> np.ndarray:
+    pixels = np.asarray(value)
+    if pixels.dtype.kind not in "iuf" or pixels.ndim != 1 or pixels.size != count:
+        raise ValueError(f"output_grid.{name} must contain {count} numeric pixel centers")
+    pixels = pixels.astype(np.float64, copy=False)
+    if (
+        not np.isfinite(pixels).all()
+        or np.any(pixels < 0.0)
+        or np.any(pixels > limit - 1)
+        or np.any(np.diff(pixels) <= 0.0)
+    ):
+        raise ValueError(
+            f"output_grid.{name} must be finite, increasing, and inside the camera image"
+        )
+    return pixels
 
 
 def _pair(value: Any, name: str) -> tuple[float, float]:

@@ -74,6 +74,7 @@ def _snapshot(depth: np.ndarray, displacement: np.ndarray) -> object:
 def test_bundled_gelsight_mini_profile_is_native_and_uses_camera_markers() -> None:
     visualizer = _new_visualizer(mode="rgb")
     assert visualizer.profile == "gelsight_mini"
+    assert visualizer.display_gain == 4.0
     assert visualizer.renderer.width == 240
     assert visualizer.renderer.height == 320
     assert visualizer.renderer.pixel_scale_mm == pytest.approx(0.065)
@@ -84,7 +85,7 @@ def test_bundled_gelsight_mini_profile_is_native_and_uses_camera_markers() -> No
     source = _SnapshotSource(_snapshot(np.zeros((175, 100), dtype=np.float32), displacement))
     frame = visualizer.update(source)
     assert frame.calibration_label == "GelSight Mini-calibrated RGB"
-    assert frame.marker_label == "Camera dots; motion from HydroShear displacement"
+    assert frame.marker_label == "Camera dots + HydroShear arrows"
     assert frame.image_rgb.shape == (320, 240, 3)
     assert not frame.image_rgb.flags.writeable
     assert source.read_count == 1
@@ -114,7 +115,7 @@ def test_gelsight_rgb_uses_contact_and_actual_displacement() -> None:
     still = visualizer.update(source)
 
     displaced = displacement.copy()
-    displaced[4, 3, 0] = 0.2
+    displaced[4, 3, 0] = 1.0
     source.snapshot = _snapshot(depth, displaced)
     moving = visualizer.update(source)
     assert np.any(still.image_rgb != moving.image_rgb)
@@ -124,23 +125,76 @@ def test_gelsight_rgb_uses_contact_and_actual_displacement() -> None:
     visualizer.close()
 
 
-def test_display_gain_changes_only_display_displacement() -> None:
+def test_display_gain_changes_only_arrow_scale_on_rgb_layer() -> None:
     depth = np.full((175, 100), -0.5, dtype=np.float32)
     displacement = np.zeros((9, 7, 3), dtype=np.float32)
-    displacement[..., 0] = 0.1
-    displacement[..., 1] = -0.05
+    displacement[..., 0] = 0.8
+    displacement[..., 1] = -0.4
     source = _SnapshotSource(_snapshot(depth, displacement))
-    visualizer = _new_visualizer(mode="displacement", display_gain=3.0)
+    visualizer = _new_visualizer(mode="rgb", display_gain=4.0)
     frame = visualizer.update(source)
+    assert frame.mode == "rgb"
     np.testing.assert_array_equal(frame.raw_displacement_mm, displacement)
-    np.testing.assert_array_equal(frame.display_displacement_mm, displacement * 3.0)
+    np.testing.assert_array_equal(frame.display_displacement_mm, displacement * 0.05)
     np.testing.assert_array_equal(source.snapshot.displacement_mm[0], displacement)
     assert frame.image_rgb.shape == (320, 240, 3)
     visualizer.set_display_gain(0.0)
     zero_gain = visualizer.update(source)
     np.testing.assert_array_equal(zero_gain.raw_displacement_mm, displacement)
-    np.testing.assert_array_equal(zero_gain.display_displacement_mm, 0.0)
+    np.testing.assert_array_equal(zero_gain.display_displacement_mm, displacement * 0.05)
     assert np.any(frame.image_rgb != zero_gain.image_rgb)
+    visualizer.close()
+
+
+def test_rgb_arrow_directions_follow_sensor_local_xy() -> None:
+    from unitac.hydroshear.visualization import _draw_displacement_vectors
+
+    background = np.zeros((100, 100, 3), dtype=np.uint8)
+    marker_positions = np.zeros((1, 1, 3), dtype=np.float32)
+    displacement_x = np.asarray([[[1.3, 0.0, 0.0]]], dtype=np.float32)
+    displacement_y = np.asarray([[[0.0, 1.3, 0.0]]], dtype=np.float32)
+    visualizer = _new_visualizer()
+    renderer = visualizer.renderer
+
+    right = _draw_displacement_vectors(
+        background,
+        displacement_x,
+        marker_positions,
+        np.full((175, 100), -0.5, dtype=np.float32),
+        active_width_mm=6.5,
+        active_height_mm=6.5,
+        display_gain=4.0,
+        cv2=renderer._cv2,
+    )
+    down = _draw_displacement_vectors(
+        background,
+        displacement_y,
+        marker_positions,
+        np.full((175, 100), -0.5, dtype=np.float32),
+        active_width_mm=6.5,
+        active_height_mm=6.5,
+        display_gain=4.0,
+        cv2=renderer._cv2,
+    )
+    green_right = (right[..., 1] > 200) & (right[..., 0] < 50) & (right[..., 2] < 50)
+    green_down = (down[..., 1] > 200) & (down[..., 0] < 50) & (down[..., 2] < 50)
+    assert np.any(green_right[48:52, 51:57])
+    assert not np.any(green_right[51:57, 48:52])
+    assert np.any(green_down[51:57, 48:52])
+    assert not np.any(green_down[48:52, 51:57])
+    visualizer.close()
+
+
+def test_arrows_are_hidden_without_contact_or_below_minimum_length() -> None:
+    depth = np.zeros((175, 100), dtype=np.float32)
+    displacement = np.zeros((9, 7, 3), dtype=np.float32)
+    displacement[..., 0] = 0.1
+    source = _SnapshotSource(_snapshot(depth, displacement))
+    visualizer = _new_visualizer(mode="rgb", display_gain=4.0)
+    with_arrows_enabled = visualizer.update(source).image_rgb
+    visualizer.set_display_gain(0.0)
+    without_arrows = visualizer.update(source).image_rgb
+    np.testing.assert_array_equal(with_arrows_enabled, without_arrows)
     visualizer.close()
 
 
@@ -156,7 +210,7 @@ def test_external_gelsight_profile_uses_authorized_camera_marker_assets(
     )
     frame = visualizer.update(source)
     assert frame.calibration_label == "External GelSight Mini-calibrated RGB"
-    assert frame.marker_label == "Camera dots; motion from HydroShear displacement"
+    assert frame.marker_label == "Camera dots + HydroShear arrows"
     assert frame.image_rgb.shape == marker_background.shape
     visualizer.close()
 
