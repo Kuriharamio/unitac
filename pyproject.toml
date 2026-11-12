@@ -21,7 +21,7 @@ license-files = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "unisim-core @ git+https://github.com/Kuriharamio/unisim.git@b0809b698e987257b1407a0440c275baaea2d7e9",
+    "unisim-core @ git+https://github.com/unilabsim/unisim.git@dbbd2ea2fd31b0ca61a18a72a82a05bfcf48c588",
 ]
 keywords = ["physics", "simulation", "robotics", "tactile"]
 classifiers = [

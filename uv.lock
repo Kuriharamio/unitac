@@ -1158,7 +1158,7 @@ wheels = [
 
 [[package]]
 name = "unisim-core"
-version = "2.3.0"
+version = "2.7.1"
 source = { editable = "third_party/unisim" }
 dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -1168,19 +1168,16 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.1.0" },
+    { name = "drake-uni", marker = "extra == 'drake'", specifier = "==0.2.0" },
     { name = "genesis-world", marker = "extra == 'genesis'", specifier = "==1.3.3" },
     { name = "imgui-bundle", marker = "extra == 'newton'", specifier = ">=1.92.0" },
     { name = "mjbatch-uni", marker = "extra == 'mujoco'", specifier = "~=0.2.5" },
-    { name = "mjbatch-uni", marker = "extra == 'mujoco317'", git = "https://github.com/Kuriharamio/mjbatch_uni.git?rev=435324d72e2614a93232f76032f4008d36150cb5" },
     { name = "motrixsim-core", marker = "extra == 'motrix'", specifier = "==0.10.1" },
     { name = "mujoco", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'superdex'", specifier = "~=3.11.0" },
     { name = "mujoco", marker = "extra == 'mujoco'", specifier = "~=3.11.0" },
-    { name = "mujoco", marker = "extra == 'mujoco317'", specifier = "==3.17.0" },
     { name = "mujoco", marker = "extra == 'newton'", specifier = "==3.11.0" },
     { name = "mujoco", marker = "extra == 'scene-compiler'", specifier = "~=3.11.0" },
     { name = "mujoco-warp", marker = "extra == 'mjwarp'", specifier = "~=3.11.0" },
-    { name = "mujoco-warp", marker = "extra == 'mjwarp317'", specifier = "==3.17.0" },
     { name = "mujoco-warp", marker = "extra == 'newton'", specifier = "==3.11.0" },
     { name = "newton", marker = "extra == 'newton'", specifier = "==1.5.1" },
     { name = "numpy" },
@@ -1189,10 +1186,9 @@ requires-dist = [
     { name = "superdex-robotics-uni", marker = "python_full_version >= '3.12' and python_full_version < '3.14' and extra == 'superdex'", specifier = "==1.3.0" },
     { name = "viser", marker = "extra == 'newton-viser'", specifier = ">=1.1,<2" },
     { name = "warp-lang", marker = "extra == 'mjwarp'", specifier = "==1.16.0" },
-    { name = "warp-lang", marker = "extra == 'mjwarp317'", specifier = "==1.19.0" },
     { name = "warp-lang", marker = "extra == 'newton'", specifier = "==1.16.0" },
 ]
-provides-extras = ["scene-compiler", "mujoco", "motrix", "drake", "mjwarp", "mujoco317", "mjwarp317", "genesis", "superdex", "newton", "newton-viser", "isaacgym", "isaacsim"]
+provides-extras = ["scene-compiler", "mujoco", "motrix", "drake", "mjwarp", "genesis", "superdex", "newton", "newton-viser", "isaacgym", "isaacsim"]
 
 [package.metadata.requires-dev]
 dev = [
