@@ -1,14 +1,13 @@
-"""Run one HydroShear sample with a static MJBatch-backed MuJoCo scene."""
+"""Run one HydroShear sample from the packaged letter press scene."""
 
 from __future__ import annotations
 
 import argparse
-import tempfile
 from importlib import resources
-from pathlib import Path
 
 import numpy as np
 import torch
+from unisim import TensorIOSpec
 from unisim.factory import create_backend, create_tactile_sensor
 from unisim.scene import SceneCfg
 from unisim.tactile import TactileSceneDescription
@@ -16,71 +15,63 @@ from unisim.tactile import TactileSceneDescription
 from unitac.hydroshear.config import load_triangle_mesh
 
 
-def _write_scene(path: Path) -> None:
-    path.write_text(
-        """<mujoco model="unitac-example">
-  <worldbody>
-    <body name="object">
-      <geom name="object_box" type="box" size="0.005 0.005 0.004"
-            pos="0 0 0.001"/>
-    </body>
-    <body name="sensor_mount">
-      <site name="gel_site"/>
-    </body>
-  </worldbody>
-</mujoco>
-""",
-        encoding="utf-8",
-    )
-
-
-def _gel_mesh() -> np.ndarray:
-    asset = resources.files("unitac.hydroshear").joinpath(
-        "assets", "letter_press", "gsmini_elastomer_collision_512.obj"
-    )
-    with resources.as_file(asset) as path:
-        triangles = load_triangle_mesh(path).copy()
-    return triangles + np.asarray([0.0005, 0.05975, 0.00725], dtype=np.float32)
+_BODY_NAMES = ("pad", "indenter")
+_SITE_NAMES = ("gel_surface",)
+_GEL_OFFSET = np.asarray([0.0005, 0.05975, 0.00725], dtype=np.float32)
 
 
 def run() -> np.ndarray:
     if not torch.cuda.is_available():
         raise RuntimeError("HydroShear requires CUDA")
 
-    with tempfile.TemporaryDirectory(prefix="unitac-mjbatch-") as temporary:
-        scene_path = Path(temporary) / "scene.xml"
-        _write_scene(scene_path)
+    asset_root = resources.files("unitac.hydroshear").joinpath("assets", "letter_press")
+    scene_asset = asset_root.joinpath("scene.xml")
+    with resources.as_file(scene_asset) as scene_path:
         backend = create_backend(
             "mujoco",
             SceneCfg(model_file=str(scene_path)),
             num_envs=1,
             sim_dt=0.002,
+            base_name="indenter",
+            body_state_required=True,
         )
         sensor = None
+        pose_plan = None
         try:
             backend.materialize()
-            collision = backend.get_ray_collision_description(("object", "sensor_mount"))
+            collision = backend.get_ray_collision_description(body_names=_BODY_NAMES)
             scene = TactileSceneDescription(
                 collision=collision,
-                object_body_names=("object",),
-                sensor_frames=backend.get_ray_site_frames(("gel_site",)),
+                object_body_names=("indenter",),
+                object_geom_names=("letter_geom",),
+                sensor_frames=backend.get_ray_site_frames(_SITE_NAMES),
                 geometry_state=backend.get_ray_geometry_state(collision.scene.body_names),
             )
+            gel_mesh_path = scene_path.parent / "gsmini_elastomer_collision_512.obj"
+            gel_mesh = load_triangle_mesh(gel_mesh_path).copy() + _GEL_OFFSET
             sensor = create_tactile_sensor(
                 tactile_type="hydroshear",
                 num_envs=1,
-                config={"gel_mesh": _gel_mesh(), "device": "cuda:0"},
+                config={"gel_mesh": gel_mesh, "device": "cuda:0"},
             )
             sensor.materialize(scene)
-
-            body_count = len(collision.scene.body_names)
-            body_pos = torch.zeros((1, body_count, 3), device="cuda:0")
-            body_quat = torch.zeros((1, body_count, 4), device="cuda:0")
-            body_quat[..., 0] = 1.0
-            sensor.update_pose(body_pos, body_quat)
+            pose_plan = backend.bind_host_bridge_io(
+                TensorIOSpec(
+                    body_names=_BODY_NAMES,
+                    body_fields=("pos_w", "quat_w"),
+                    device="cpu",
+                )
+            )
+            pose_plan.read_state_sensors()
+            poses = pose_plan.get_body_pose_views()
+            if poses.pos_w is None or poses.quat_w is None:
+                raise RuntimeError("UniSim did not provide both body position and quaternion views")
+            sensor.update_pose(poses.pos_w, poses.quat_w)
             sensor.advance()
             return sensor.read()["displacement"].detach().cpu().numpy().copy()
         finally:
+            if pose_plan is not None:
+                pose_plan.close()
             if sensor is not None:
                 sensor.close()
             backend.close()
