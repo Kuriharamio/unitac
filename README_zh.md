@@ -73,4 +73,3 @@ HydroShear 几何、SDF 和深度计算要求 CUDA，传感器没有 CPU 计算�
 
 - [Architecture](docs/en/architecture.md) · [架构说明](docs/zh/architecture.md)
 - [第三方声明](THIRD_PARTY_NOTICES.md)
-- [MIT 许可](LICENSE)
