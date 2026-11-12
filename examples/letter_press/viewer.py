@@ -18,6 +18,20 @@ else:
     from simulation import CYCLE_FRAMES, LetterPressSimulation, observation_metrics, phase_target
 
 
+CAMERA_DISTANCE = 0.11
+CAMERA_ELEVATION = -25.0
+CAMERA_AZIMUTH = 45.0
+CAMERA_LOOKAT = (0.0, 0.0, 0.008)
+
+
+def _configure_free_camera(camera: Any, mujoco: Any) -> None:
+    camera.type = mujoco.mjtCamera.mjCAMERA_FREE
+    camera.distance = CAMERA_DISTANCE
+    camera.elevation = CAMERA_ELEVATION
+    camera.azimuth = CAMERA_AZIMUTH
+    camera.lookat[:] = CAMERA_LOOKAT
+
+
 class PlaybackRenderer:
     """Render detached UniSim physics snapshots with MuJoCo's visual model."""
 
@@ -49,6 +63,9 @@ class PlaybackRenderer:
             )
         self.mujoco = mujoco
         self.data = mujoco.MjData(self.model)
+        self.camera = mujoco.MjvCamera()
+        mujoco.mjv_defaultCamera(self.camera)
+        _configure_free_camera(self.camera, mujoco)
         self.renderer = (
             mujoco.Renderer(self.model, height=height, width=width) if offscreen else None
         )
@@ -70,7 +87,7 @@ class PlaybackRenderer:
         if self.renderer is None:
             raise RuntimeError("offscreen renderer was not created")
         parts, sim_time = self.sync(simulation)
-        self.renderer.update_scene(self.data, camera="overview")
+        self.renderer.update_scene(self.data, camera=self.camera)
         return self.renderer.render().copy(), parts, sim_time
 
     def close(self) -> None:
@@ -310,7 +327,6 @@ def run_interactive(
 
     viewer = None
     try:
-        camera_id = playback.model.camera("overview").id
         viewer = mujoco.viewer.launch_passive(
             playback.model,
             playback.data,
@@ -319,8 +335,7 @@ def run_interactive(
             show_right_ui=False,
         )
         with viewer.lock():
-            viewer.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
-            viewer.cam.fixedcamid = camera_id
+            _configure_free_camera(viewer.cam, mujoco)
 
         frame_index = 0
         last_cycle = 0
