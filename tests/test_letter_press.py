@@ -4,14 +4,18 @@ import json
 
 import pytest
 import torch
-from examples.letter_press.run import run_no_render
+from examples.letter_press.runtime import run_no_render
 from examples.letter_press.simulation import (
     CYCLE_FRAMES,
     PHASES,
+    SIM_DT,
     LetterPressSimulation,
     phase_target,
     scene_files,
 )
+from unisim.backend.process_device import configure_backend_process_device
+from unisim.factory import create_backend
+from unisim.scene import SceneCfg
 
 
 @pytest.mark.parametrize(
@@ -43,7 +47,16 @@ def test_letter_press_no_render_smoke(backend_name: str, tmp_path, monkeypatch) 
         pytest.importorskip("mujoco_warp")
 
     with scene_files() as xml_path:
-        with LetterPressSimulation(backend_name, xml_path, "cuda:0") as simulation:
+        configure_backend_process_device(backend_name, "cuda:0")
+        backend = create_backend(
+            backend_name,
+            SceneCfg(model_file=str(xml_path)),
+            num_envs=1,
+            sim_dt=SIM_DT,
+            base_name="indenter",
+            body_state_required=True,
+        )
+        with LetterPressSimulation(backend, xml_path, "cuda:0") as simulation:
             assert simulation.sensor is not None
             monkeypatch.setattr(
                 simulation.sensor,

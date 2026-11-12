@@ -1,4 +1,4 @@
-"""Run one HydroShear sample with a static UniSim MuJoCo scene."""
+"""Run one HydroShear sample with a static MJBatch-backed MuJoCo scene."""
 
 from __future__ import annotations
 
@@ -43,15 +43,15 @@ def _gel_mesh() -> np.ndarray:
     return triangles + np.asarray([0.0005, 0.05975, 0.00725], dtype=np.float32)
 
 
-def run(backend_type: str = "mujoco") -> np.ndarray:
+def run() -> np.ndarray:
     if not torch.cuda.is_available():
         raise RuntimeError("HydroShear requires CUDA")
 
-    with tempfile.TemporaryDirectory(prefix="unitac-mujoco-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="unitac-mjbatch-") as temporary:
         scene_path = Path(temporary) / "scene.xml"
         _write_scene(scene_path)
         backend = create_backend(
-            backend_type,
+            "mujoco",
             SceneCfg(model_file=str(scene_path)),
             num_envs=1,
             sim_dt=0.002,
@@ -88,10 +88,8 @@ def run(backend_type: str = "mujoco") -> np.ndarray:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--backend", choices=("mujoco", "mjwarp"), default="mujoco")
-    args = parser.parse_args()
-    displacement = run(args.backend)
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    displacement = run()
     print(f"displacement shape: {displacement.shape}")
 
 

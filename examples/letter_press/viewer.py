@@ -1,4 +1,4 @@
-"""MuJoCo playback rendering for any UniSim backend with a public snapshot."""
+"""MuJoCo playback rendering for the MJBatch and MJWarp examples."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ from typing import Any
 import numpy as np
 
 if __package__:
+    from .display import TactileDisplay
     from .simulation import CYCLE_FRAMES, LetterPressSimulation, observation_metrics, phase_target
 else:
+    from display import TactileDisplay
     from simulation import CYCLE_FRAMES, LetterPressSimulation, observation_metrics, phase_target
-
-
 
 
 class PlaybackRenderer:
@@ -76,59 +76,6 @@ class PlaybackRenderer:
     def close(self) -> None:
         if self.renderer is not None:
             self.renderer.close()
-
-
-def _tactile_panel(
-    image_rgb: np.ndarray,
-    mode: str,
-    metrics: dict[str, Any],
-    calibration_label: str,
-    marker_label: str,
-) -> np.ndarray:
-    import cv2
-
-    panel = np.full((720, 320, 3), (25, 28, 33), dtype=np.uint8)
-    cv2.putText(
-        panel,
-        f"{calibration_label} | {mode.upper()}",
-        (10, 30),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.36,
-        (245, 245, 245),
-        1,
-        cv2.LINE_AA,
-    )
-    cv2.putText(
-        panel,
-        marker_label,
-        (12, 51),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.34,
-        (80, 225, 255),
-        1,
-        cv2.LINE_AA,
-    )
-    image = cv2.resize(image_rgb, (300, 400), interpolation=cv2.INTER_AREA)
-    panel[64:464, 10:310] = image
-    lines = (
-        f"Contact pixels: {metrics['contact_pixels']}",
-        f"Peak depth: {metrics['peak_depth_mm']:.3f} mm",
-        "Peak marker: "
-        f"{metrics['peak_tangential_displacement_model_units']:.3f} HydroShear units",
-        f"Sensor generation: {metrics['generation']}",
-    )
-    for index, line in enumerate(lines):
-        cv2.putText(
-            panel,
-            line,
-            (16, 500 + index * 36),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.46,
-            (225, 230, 235),
-            1,
-            cv2.LINE_AA,
-        )
-    return panel
 
 
 def _combined_frame(
@@ -231,24 +178,19 @@ def run_headless(
 ) -> dict[str, Any]:
     import cv2
 
-    from unitac.visualization import create_visualizer
-
     output_dir.mkdir(parents=True, exist_ok=True)
     video_path = output_dir / "letter_press.mp4"
     metrics_path = output_dir / "metrics.jsonl"
-    visualizer = create_visualizer(
-        "hydroshear",
+    display = TactileDisplay(
         mode=mode,
         calibration_dir=calibration_dir,
         display_gain=display_gain,
     )
     playback = PlaybackRenderer(simulation)
-    writer = cv2.VideoWriter(
-        str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (1280, 720)
-    )
+    writer = cv2.VideoWriter(str(video_path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (1280, 720))
     if not writer.isOpened():
         playback.close()
-        visualizer.close()
+        display.close()
         raise RuntimeError(f"MP4 encoder could not open {video_path}")
 
     press_capture: tuple[int, np.ndarray, np.ndarray] | None = None
@@ -263,19 +205,14 @@ def run_headless(
                 total_started = time.perf_counter()
                 stats = simulation.advance_frame(target, capture_state=False)
                 visualization_started = time.perf_counter()
-                tactile = visualizer.update(simulation.sensor, env_id=0)
-                observed = observation_metrics(
-                    tactile.raw_displacement, tactile.depth_mm, tactile.generation
-                )
                 scene, parts, sim_time = playback.render(simulation)
-                panel = _tactile_panel(
-                    tactile.image_rgb,
-                    mode,
-                    observed,
-                    tactile.calibration_label,
-                    tactile.marker_label,
+                tactile = display.update(
+                    simulation,
+                    phase=phase,
+                    sim_time=sim_time,
                 )
-                combined = _combined_frame(scene, panel, phase, sim_time)
+                observed = tactile.metrics
+                combined = _combined_frame(scene, tactile.panel_rgb, phase, sim_time)
                 visualization_ms = (time.perf_counter() - visualization_started) * 1000.0
                 writer.write(cv2.cvtColor(combined, cv2.COLOR_RGB2BGR))
                 total_step_ms = (time.perf_counter() - total_started) * 1000.0
@@ -317,7 +254,7 @@ def run_headless(
     finally:
         writer.release()
         playback.close()
-        visualizer.close()
+        display.close()
 
     if not video_path.is_file() or video_path.stat().st_size == 0:
         raise RuntimeError(f"MP4 recording failed: {video_path}")
@@ -351,10 +288,7 @@ def run_interactive(
     import mujoco
     import mujoco.viewer
 
-    from unitac.visualization import create_visualizer
-
-    visualizer = create_visualizer(
-        "hydroshear",
+    display = TactileDisplay(
         mode=mode,
         calibration_dir=calibration_dir,
         display_gain=display_gain,
@@ -370,9 +304,9 @@ def run_interactive(
         elif keycode in (ord("n"), ord("N"), ord(".")):
             state["single_step"] = True
         elif keycode == ord("1"):
-            visualizer.set_mode("rgb")
+            display.set_mode("rgb")
         elif keycode == ord("2"):
-            visualizer.set_mode("depth")
+            display.set_mode("depth")
 
     viewer = None
     try:
@@ -415,22 +349,21 @@ def run_interactive(
                 phase, _target = phase_target(max(frame_index - 1, 0))
             state["single_step"] = False
 
-            tactile = visualizer.update(simulation.sensor, env_id=0)
-            observed = observation_metrics(
-                tactile.raw_displacement, tactile.depth_mm, tactile.generation
-            )
             with viewer.lock():
                 _parts, sim_time = playback.sync(simulation)
-            contact_pixels = observed["contact_pixels"]
+            tactile = display.update(simulation, phase=phase, sim_time=sim_time)
             viewport = viewer.viewport
             if viewport is not None:
                 import cv2
 
-                width = min(320, max(1, viewport.width - 10))
-                height = int(round(width * tactile.image_rgb.shape[0] / tactile.image_rgb.shape[1]))
-                panel = cv2.resize(
-                    tactile.image_rgb, (width, height), interpolation=cv2.INTER_AREA
+                scale = min(
+                    1.0,
+                    max(1, viewport.width - 10) / 320,
+                    max(1, viewport.height - 10) / 720,
                 )
+                width = max(1, int(round(320 * scale)))
+                height = max(1, int(round(720 * scale)))
+                panel = cv2.resize(tactile.panel_rgb, (width, height), interpolation=cv2.INTER_AREA)
                 viewer.set_images(
                     (
                         mujoco.MjrRect(
@@ -448,27 +381,8 @@ def run_interactive(
                     (
                         font,
                         mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                        f"Backend: {simulation.backend_name} | Stage: {phase}",
-                        f"Time: {sim_time:.2f}s",
-                    ),
-                    (
-                        font,
-                        mujoco.mjtGridPos.mjGRID_TOPRIGHT,
-                        f"Mode: {visualizer.mode}",
-                        f"Contact pixels: {contact_pixels}",
-                    ),
-                    (
-                        font,
-                        mujoco.mjtGridPos.mjGRID_BOTTOMRIGHT,
-                        tactile.calibration_label,
-                        tactile.marker_label,
-                    ),
-                    (
-                        font,
-                        mujoco.mjtGridPos.mjGRID_BOTTOMLEFT,
-                        f"Peak depth: {observed['peak_depth_mm']:.3f} mm",
-                        "Peak marker: "
-                        f"{observed['peak_tangential_displacement_model_units']:.3f} units",
+                        f"Backend: {simulation.backend_name}",
+                        "",
                     ),
                 ]
             )
@@ -483,4 +397,4 @@ def run_interactive(
         while viewer is not None and viewer.m is not None:
             time.sleep(0.01)
         playback.close()
-        visualizer.close()
+        display.close()

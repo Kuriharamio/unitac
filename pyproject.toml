@@ -5,6 +5,9 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "unitac"
 
+[tool.uv.sources]
+unisim-core = { path = "third_party/unisim", editable = true }
+
 [project]
 name = "unitac"
 version = "0.1.0"

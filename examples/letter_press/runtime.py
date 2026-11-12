@@ -1,22 +1,19 @@
-"""Run the letter press HydroShear example on a selected UniSim backend."""
+"""Shared command-line and no-render helpers for the letter press examples."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from typing import Any
-
-import numpy as np
-from unisim import ADAPTER_SPECS
 
 if __package__:
     from .simulation import (
         CYCLE_FRAMES,
         LetterPressSimulation,
         phase_target,
-        scene_files,
         tensor_observation_metrics,
     )
 else:
@@ -24,9 +21,34 @@ else:
         CYCLE_FRAMES,
         LetterPressSimulation,
         phase_target,
-        scene_files,
         tensor_observation_metrics,
     )
+
+
+def standard_parser(description: str, *, output_dir: Path) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=description)
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--headless", action="store_true", help="record a rendered MP4")
+    output.add_argument("--no-render", action="store_true", help="run physics and touch only")
+    parser.add_argument("--frames", type=int, help="frames to run; GUI defaults to unlimited")
+    parser.add_argument("--device", default="cuda:0", help="HydroShear CUDA device")
+    parser.add_argument("--output-dir", type=Path, default=output_dir)
+    parser.add_argument("--mode", choices=("rgb", "depth"), default="rgb")
+    parser.add_argument("--calibration-dir", type=Path, help="GelSight Mini calibration override")
+    parser.add_argument("--display-gain", type=float, default=40.0)
+    parser.add_argument("--fps", type=float, default=30.0, help="GUI and recording frame rate")
+    return parser
+
+
+def validate_standard_args(args: argparse.Namespace) -> None:
+    if args.frames is not None and args.frames < 1:
+        raise SystemExit("--frames must be a positive integer")
+    if args.fps <= 0:
+        raise SystemExit("--fps must be positive")
+    if args.display_gain < 0 or not math.isfinite(args.display_gain):
+        raise SystemExit("--display-gain must be finite and nonnegative")
+    if args.headless or args.no_render:
+        args.frames = CYCLE_FRAMES if args.frames is None else args.frames
 
 
 def _write_reset_record(simulation: LetterPressSimulation, metrics_file: Any) -> None:
@@ -99,77 +121,36 @@ def run_no_render(
     }
 
 
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--backend",
-        choices=tuple(spec.name for spec in ADAPTER_SPECS),
-        default="mujoco",
-        help="UniSim physics backend",
+def run_mujoco_playback_modes(
+    simulation: LetterPressSimulation, args: argparse.Namespace
+) -> dict[str, Any] | None:
+    if args.no_render:
+        return run_no_render(simulation, frames=args.frames, output_dir=args.output_dir)
+    if args.headless:
+        if __package__:
+            from .viewer import run_headless
+        else:
+            from viewer import run_headless
+        return run_headless(
+            simulation,
+            frames=args.frames,
+            output_dir=args.output_dir,
+            mode=args.mode,
+            fps=args.fps,
+            calibration_dir=args.calibration_dir,
+            display_gain=args.display_gain,
+        )
+    if __package__:
+        from .viewer import run_interactive
+    else:
+        from viewer import run_interactive
+    print(json.dumps({"backend": simulation.backend_name, "viewer": "MuJoCo playback"}))
+    run_interactive(
+        simulation,
+        frames=args.frames,
+        fps=args.fps,
+        mode=args.mode,
+        calibration_dir=args.calibration_dir,
+        display_gain=args.display_gain,
     )
-    output = parser.add_mutually_exclusive_group()
-    output.add_argument("--headless", action="store_true", help="record a rendered MP4")
-    output.add_argument("--no-render", action="store_true", help="run physics and touch only")
-    parser.add_argument("--frames", type=int, help="frames to run; GUI defaults to unlimited")
-    parser.add_argument("--device", default="cuda:0", help="HydroShear CUDA device")
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/letter_press"))
-    parser.add_argument("--mode", choices=("rgb", "depth"), default="rgb")
-    parser.add_argument("--calibration-dir", type=Path, help="GelSight Mini calibration override")
-    parser.add_argument("--display-gain", type=float, default=40.0)
-    parser.add_argument("--fps", type=float, default=30.0, help="GUI and recording frame rate")
-    return parser
-
-
-def main() -> None:
-    args = _parser().parse_args()
-    if args.frames is not None and args.frames < 1:
-        raise SystemExit("--frames must be a positive integer")
-    if args.fps <= 0:
-        raise SystemExit("--fps must be positive")
-    if args.display_gain < 0 or not np.isfinite(args.display_gain):
-        raise SystemExit("--display-gain must be finite and nonnegative")
-    if args.headless or args.no_render:
-        args.frames = CYCLE_FRAMES if args.frames is None else args.frames
-
-    with scene_files() as xml_path:
-        with LetterPressSimulation(args.backend, xml_path, args.device) as simulation:
-            if args.no_render:
-                result = run_no_render(
-                    simulation,
-                    frames=args.frames,
-                    output_dir=args.output_dir,
-                )
-            elif args.headless:
-                if __package__:
-                    from .viewer import run_headless
-                else:
-                    from viewer import run_headless
-                result = run_headless(
-                    simulation,
-                    frames=args.frames,
-                    output_dir=args.output_dir,
-                    mode=args.mode,
-                    fps=args.fps,
-                    calibration_dir=args.calibration_dir,
-                    display_gain=args.display_gain,
-                )
-            else:
-                if __package__:
-                    from .viewer import run_interactive
-                else:
-                    from viewer import run_interactive
-                print(json.dumps({"backend": simulation.backend_name, "viewer": "MuJoCo playback"}))
-                run_interactive(
-                    simulation,
-                    frames=args.frames,
-                    fps=args.fps,
-                    mode=args.mode,
-                    calibration_dir=args.calibration_dir,
-                    display_gain=args.display_gain,
-                )
-                return
-    print(json.dumps(result, indent=2))
-
-
-if __name__ == "__main__":
-    main()
+    return None

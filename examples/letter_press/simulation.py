@@ -12,9 +12,7 @@ from typing import Any, Iterator
 import numpy as np
 import torch
 from unisim import TensorIOSpec
-from unisim.backend.process_device import configure_backend_process_device
-from unisim.factory import create_backend, create_tactile_sensor
-from unisim.scene import SceneCfg
+from unisim.factory import create_tactile_sensor
 from unisim.tactile import TactileSceneDescription
 
 from unitac.hydroshear.config import load_triangle_mesh
@@ -37,7 +35,7 @@ CYCLE_FRAMES = sum(duration for _, duration in PHASES)
 
 @contextmanager
 def scene_files() -> Iterator[Path]:
-    """Materialize the packaged MJCF assets for path-based backend loaders."""
+    """Materialize the packaged MJCF and its meshes for path-based loaders."""
     asset_root = resources.files("unitac.hydroshear").joinpath("assets", "letter_press")
     with tempfile.TemporaryDirectory(prefix="unitac-letter-press-") as temporary:
         root = Path(temporary)
@@ -73,37 +71,30 @@ def phase_target(frame_index: int) -> tuple[str, np.ndarray]:
 class LetterPressSimulation:
     """One physical backend feeding the backend-neutral HydroShear sensor."""
 
-    def __init__(self, backend_name: str, xml_path: Path, device: str) -> None:
-        self._hydroshear_device = torch.device(device)
-        if self._hydroshear_device.type != "cuda" or not torch.cuda.is_available():
-            raise RuntimeError("HydroShear requires an available CUDA device")
-        if (
-            self._hydroshear_device.index is not None
-            and self._hydroshear_device.index >= torch.cuda.device_count()
-        ):
-            raise RuntimeError(
-                f"CUDA device {self._hydroshear_device.index} is unavailable; "
-                f"found {torch.cuda.device_count()} device(s)"
-            )
-        configure_backend_process_device(backend_name, device)
-        if self._hydroshear_device.index is None:
-            self._hydroshear_device = torch.device("cuda", torch.cuda.current_device())
-        self.backend = create_backend(
-            backend_name,
-            SceneCfg(model_file=str(xml_path)),
-            num_envs=1,
-            sim_dt=SIM_DT,
-            base_name="indenter",
-            body_state_required=True,
-        )
+    def __init__(self, backend: Any, xml_path: Path, device: str) -> None:
+        self.backend = backend
+        self.backend_name = str(getattr(backend, "backend_type", "unknown"))
         self.sensor: Any | None = None
         self.pose_plan: Any | None = None
         self._closed = False
         self.physics_steps = 0
-        with torch.cuda.device(self._hydroshear_device):
-            self._tactile_start = torch.cuda.Event(enable_timing=True)
-            self._tactile_end = torch.cuda.Event(enable_timing=True)
         try:
+            self._hydroshear_device = torch.device(device)
+            if self._hydroshear_device.type != "cuda" or not torch.cuda.is_available():
+                raise RuntimeError("HydroShear requires an available CUDA device")
+            if (
+                self._hydroshear_device.index is not None
+                and self._hydroshear_device.index >= torch.cuda.device_count()
+            ):
+                raise RuntimeError(
+                    f"CUDA device {self._hydroshear_device.index} is unavailable; "
+                    f"found {torch.cuda.device_count()} device(s)"
+                )
+            if self._hydroshear_device.index is None:
+                self._hydroshear_device = torch.device("cuda", torch.cuda.current_device())
+            with torch.cuda.device(self._hydroshear_device):
+                self._tactile_start = torch.cuda.Event(enable_timing=True)
+                self._tactile_end = torch.cuda.Event(enable_timing=True)
             self.backend.materialize()
             self.backend_name = str(self.backend.backend_type)
             self._initialize(xml_path, device)
@@ -288,9 +279,7 @@ class LetterPressSimulation:
             for name in ("physics_ms", "pose_read_transfer_ms", "tactile_ms"):
                 totals[name] += timing[name]
             for name, value in timing["backend_timing"].items():
-                totals["backend_timing"][name] = (
-                    totals["backend_timing"].get(name, 0.0) + value
-                )
+                totals["backend_timing"][name] = totals["backend_timing"].get(name, 0.0) + value
 
         if capture_state:
             state_start = time.perf_counter()
@@ -387,16 +376,21 @@ def tensor_observation_metrics(displacement: torch.Tensor) -> dict[str, Any]:
     magnitude = torch.linalg.vector_norm(raw, dim=-1)
     tangent = torch.linalg.vector_norm(raw[..., :2], dim=-1)
     mean = raw.mean(dim=(0, 1, 2))
-    summary = torch.stack(
-        (
-            torch.isfinite(raw).all().to(dtype=torch.float32),
-            magnitude.max(),
-            tangent.max(),
-            mean[0],
-            mean[1],
-            mean[2],
+    summary = (
+        torch.stack(
+            (
+                torch.isfinite(raw).all().to(dtype=torch.float32),
+                magnitude.max(),
+                tangent.max(),
+                mean[0],
+                mean[1],
+                mean[2],
+            )
         )
-    ).detach().cpu().tolist()
+        .detach()
+        .cpu()
+        .tolist()
+    )
     return {
         "contact_pixels": None,
         "peak_depth_mm": None,
