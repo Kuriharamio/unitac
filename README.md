@@ -65,7 +65,7 @@ Each UniSim backend advances physics and provides body poses, collision geometry
 
 ## Public API
 
-`unisim.factory.create_tactile_sensor("unitac", model="hydroshear", ...)` returns a UniSim `TactileSensor`. Provide a closed gel triangle mesh in sensor-local metres, materialize it with a `TactileSceneDescription`, then call `update_pose`, `advance`, `read`, `reset`, and `close`. `read()` returns a view into a reusable CUDA Torch buffer; copy it before the next advance or reset if it must be retained. The minimal runnable integration is [examples/mjbatch_backend.py](examples/mjbatch_backend.py).
+`unisim.factory.create_tactile_sensor(tactile_type="hydroshear", ...)` returns a UniSim `TactileSensor`. Provide a closed gel triangle mesh in sensor-local metres, materialize it with a `TactileSceneDescription`, then call `update_pose`, `advance`, `read`, `reset`, and `close`. `read()` returns a view into a reusable CUDA Torch buffer; copy it before the next advance or reset if it must be retained. The minimal runnable integration is [examples/mjbatch_backend.py](examples/mjbatch_backend.py).
 
 HydroShear geometry, SDF, and depth calculation require CUDA. The sensor has no CPU compute path. RGB and depth rendering are explicit CPU-side diagnostic work and are not performed by `read()`.
 

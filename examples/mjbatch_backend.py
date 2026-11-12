@@ -67,8 +67,7 @@ def run() -> np.ndarray:
                 geometry_state=backend.get_ray_geometry_state(collision.scene.body_names),
             )
             sensor = create_tactile_sensor(
-                "unitac",
-                model="hydroshear",
+                tactile_type="hydroshear",
                 num_envs=1,
                 config={"gel_mesh": _gel_mesh(), "device": "cuda:0"},
             )

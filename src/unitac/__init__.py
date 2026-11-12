@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from unisim.optional import OptionalDependencyError
@@ -14,15 +15,19 @@ __all__ = ["__version__", "create_tactile_sensor"]
 
 
 def create_tactile_sensor(
-    *, model: str, num_envs: int = 1, config: Any, **kwargs: Any
+    tactile_type: str,
+    *,
+    num_envs: int = 1,
+    config: Mapping[str, Any] | None = None,
+    **kwargs: Any,
 ) -> TactileSensor:
-    """Create a selected UniTac tactile model; solver dependencies load on demand."""
-    if model != "hydroshear":
-        raise ValueError(f"unknown UniTac tactile model: {model!r}")
+    """Create a selected UniTac tactile type; solver dependencies load on demand."""
+    if tactile_type != "hydroshear":
+        raise ValueError(f"unknown UniTac tactile type: {tactile_type!r}")
     if kwargs:
         raise TypeError(f"unexpected HydroShear factory arguments: {sorted(kwargs)}")
     if config is None:
-        raise ValueError("HydroShear requires a model configuration with a closed gel_mesh")
+        raise ValueError("HydroShear requires a tactile config with a closed gel_mesh")
     try:
         import cupy  # noqa: F401
         import torch  # noqa: F401

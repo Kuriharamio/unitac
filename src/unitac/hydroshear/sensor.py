@@ -77,7 +77,7 @@ class HydroShearSensor(TactileSensor):
     caller's current stream.
     """
 
-    sensor_type = "hydroshear"
+    tactile_type = "hydroshear"
     _tactile_capabilities = _CAPABILITIES
 
     def __init__(self, num_envs: int, config: Mapping[str, Any]) -> None:

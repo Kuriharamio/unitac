@@ -65,7 +65,7 @@ MJBatch 和 MJWarp 示例使用 MuJoCo playback viewer。它们的 `--headless` 
 
 ## 公共 API
 
-`unisim.factory.create_tactile_sensor("unitac", model="hydroshear", ...)` 返回 UniSim `TactileSensor`。调用者提供传感器局部坐标系中的闭合凝胶三角网格，单位为米；通过 `TactileSceneDescription` 完成物化后，依次调用 `update_pose`、`advance`、`read`、`reset` 和 `close`。`read()` 返回可复用 CUDA Torch 缓冲区的视图；如需跨越下一次 advance 或 reset 保存数据，请先复制。完整可运行的集成示例见 [examples/mjbatch_backend.py](examples/mjbatch_backend.py)。
+`unisim.factory.create_tactile_sensor(tactile_type="hydroshear", ...)` 返回 UniSim `TactileSensor`。调用者提供传感器局部坐标系中的闭合凝胶三角网格，单位为米；通过 `TactileSceneDescription` 完成物化后，依次调用 `update_pose`、`advance`、`read`、`reset` 和 `close`。`read()` 返回可复用 CUDA Torch 缓冲区的视图；如需跨越下一次 advance 或 reset 保存数据，请先复制。完整可运行的集成示例见 [examples/mjbatch_backend.py](examples/mjbatch_backend.py)。
 
 HydroShear 几何、SDF 和深度计算要求 CUDA，传感器没有 CPU 计算路径。RGB 和深度渲染是显式调用的 CPU 诊断操作，`read()` 不会执行渲染。
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import time
 from contextlib import contextmanager
+from dataclasses import asdict
 from importlib import resources
 from pathlib import Path
 from typing import Any, Iterator
@@ -149,8 +150,7 @@ class LetterPressSimulation:
             geometry_state=geometry_state,
         )
         self.sensor = create_tactile_sensor(
-            "unitac",
-            model="hydroshear",
+            tactile_type="hydroshear",
             num_envs=1,
             config={
                 "gel_mesh": gel_triangles,
@@ -322,7 +322,10 @@ class LetterPressSimulation:
 
     def transfer_diagnostics(self) -> dict[str, Any]:
         values: dict[str, Any] = {
-            "backend": dict(self.backend.get_tensor_transfer_diagnostics()),
+            "backend": {
+                name: asdict(diagnostic)
+                for name, diagnostic in self.backend.get_tensor_runtime_diagnostics().items()
+            },
             "sensor_pose": dict(self.sensor.transfer_diagnostics) if self.sensor else {},
         }
         if self.pose_plan is not None:

@@ -9,13 +9,13 @@ UniSim
   public tactile scene, pose, lifecycle, and field contracts
     ↓
 UniTac
-  model selection and HydroShear implementation
+  tactile-type selection and HydroShear implementation
     ↓
 HydroShear
   geometry sampling, depth, SDF, temporal state, and displacement
 ```
 
-UniSim owns the backend-neutral `TactileSensor`, `TactileSceneDescription`, and `TactileFieldSpec` contracts. UniTac receives detached collision geometry, mounted sensor frames, and world body poses. It does not retain a simulator backend. HydroShear owns its configuration, CUDA computation, buffers, reset, rebuild, and cleanup. `src/unitac/__init__.py` selects the model with a small factory branch.
+UniSim owns the backend-neutral `TactileSensor`, `TactileSceneDescription`, and `TactileFieldSpec` contracts. UniTac receives detached collision geometry, mounted sensor frames, and world body poses. It does not retain a simulator backend. HydroShear owns its configuration, CUDA computation, buffers, reset, rebuild, and cleanup. `src/unitac/__init__.py` selects the tactile type with a small factory branch.
 
 ## Data flow
 
@@ -38,6 +38,6 @@ The HydroShear config requires `gel_mesh`, a closed `(triangles, 3, 3)` mesh in 
 
 CUDA is required for geometry distance and depth computation. NumPy and CPU Torch poses are copied to the configured device. CUDA Torch poses use the caller's current stream and DLPack interoperability. Normal `read()` stays on CUDA; diagnostic snapshots and image rendering perform explicit device-to-host copies.
 
-## Adding a model
+## Adding a tactile type
 
-Add a model-specific implementation and one selection branch in the UniTac factory. Implement UniSim's `TactileSensor` contract and declare each output's shape, units, frame, device profile, and buffer lifetime. A model can use its own geometry requirements and output fields; UniSim does not prescribe HydroShear's grid or displacement format.
+Add a tactile-type implementation and one selection branch in the UniTac factory. Implement UniSim's `TactileSensor` contract and declare each output's shape, units, frame, device profile, and buffer lifetime. A tactile type can use its own geometry requirements and output fields; UniSim does not prescribe HydroShear's grid or displacement format.

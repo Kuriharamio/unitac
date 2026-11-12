@@ -19,7 +19,7 @@ GEL[:, :, 2] -= 0.003
 def _run_partial_reset_case():
     ref = np.load(FIXTURE)
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=2,
         config=hydro_config(GEL),
     )
@@ -39,7 +39,7 @@ def _run_partial_reset_case():
 
 
 def test_pose_update_does_not_advance_and_read_reuses_sensor_buffer():
-    sensor = create_tactile_sensor(model="hydroshear", num_envs=1, config=hydro_config(GEL))
+    sensor = create_tactile_sensor(tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL))
     sensor.materialize(make_scene())
     pose = np.asarray(
         [[[0.0, 0.0, 0.001], [-0.004, 0.0, 0.0], [0.004, 0.0, 0.0]]], dtype=np.float32
@@ -65,7 +65,7 @@ def test_numpy_cpu_torch_and_cuda_pose_profiles_match():
     quaternion = np.tile(np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float32), (1, 3, 1))
     outputs = []
     for profile in ("numpy", "torch_cpu", "torch_cuda"):
-        sensor = create_tactile_sensor(model="hydroshear", num_envs=1, config=hydro_config(GEL))
+        sensor = create_tactile_sensor(tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL))
         sensor.materialize(make_scene())
         if profile == "numpy":
             position_input, quaternion_input = pose, quaternion
@@ -91,7 +91,7 @@ def test_partial_reset_preserves_unselected_environment_history():
 
 
 def test_rebuild_requires_fresh_pose_update_and_close_is_idempotent():
-    sensor = create_tactile_sensor(model="hydroshear", num_envs=1, config=hydro_config(GEL))
+    sensor = create_tactile_sensor(tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL))
     sensor.materialize(make_scene())
     sensor.advance()
     sensor.rebuild(make_scene())
@@ -114,7 +114,7 @@ def test_rebuild_requires_fresh_pose_update_and_close_is_idempotent():
 
 def test_materialize_uses_identity_poses_and_reset_enables_read_before_first_advance():
     sensor = create_tactile_sensor(
-        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
+        tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
     )
     sensor.materialize(make_scene())
     torch.cuda.synchronize()
@@ -135,7 +135,7 @@ def test_materialize_uses_identity_poses_and_reset_enables_read_before_first_adv
 
 def test_visualization_snapshot_is_latest_copied_depth_and_marker_state():
     sensor = create_tactile_sensor(
-        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=64)
+        tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=64)
     )
     sensor.materialize(make_scene())
     position = np.asarray(
@@ -172,7 +172,7 @@ def test_visualization_snapshot_is_latest_copied_depth_and_marker_state():
 @pytest.mark.parametrize("failure_point", ["materialize", "rebuild"])
 def test_failed_materialization_releases_partial_device_resources(failure_point, monkeypatch):
     sensor = create_tactile_sensor(
-        model="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
+        tactile_type="hydroshear", num_envs=1, config=hydro_config(GEL, surface_points=4)
     )
     if failure_point == "rebuild":
         sensor.materialize(make_scene())

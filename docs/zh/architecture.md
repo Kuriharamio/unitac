@@ -9,13 +9,13 @@ UniSim
   公共触觉场景、位姿、生命周期和字段契约
     ↓
 UniTac
-  模型选择与 HydroShear 实现
+  触觉类型选择与 HydroShear 实现
     ↓
 HydroShear
   几何采样、深度、SDF、时间状态和位移
 ```
 
-UniSim 拥有与后端无关的 `TactileSensor`、`TactileSceneDescription` 和 `TactileFieldSpec` 契约。UniTac 接收脱离后端的碰撞几何、传感器安装坐标系和世界位姿，不持有仿真后端。HydroShear 管理自身配置、CUDA 计算、缓冲区、reset、rebuild 和资源释放。`src/unitac/__init__.py` 用简单工厂分支选择模型。
+UniSim 拥有与后端无关的 `TactileSensor`、`TactileSceneDescription` 和 `TactileFieldSpec` 契约。UniTac 接收脱离后端的碰撞几何、传感器安装坐标系和世界位姿，不持有仿真后端。HydroShear 管理自身配置、CUDA 计算、缓冲区、reset、rebuild 和资源释放。`src/unitac/__init__.py` 用简单工厂分支选择触觉类型。
 
 ## 数据流
 
@@ -38,6 +38,6 @@ HydroShear 配置必须提供 `gel_mesh`：传感器局部坐标系中的闭合 
 
 几何距离和深度计算要求 CUDA。NumPy 和 CPU Torch 位姿会复制到所选设备。CUDA Torch 位姿通过 DLPack 使用调用者当前 stream。普通 `read()` 保持在 CUDA；诊断快照和图像渲染会显式将数据复制到 CPU。
 
-## 新增模型
+## 新增触觉类型
 
-新增模型专属实现，并在 UniTac 工厂中增加一个选择分支。实现 UniSim `TactileSensor` 契约，并为每个输出声明形状、单位、坐标系、设备 profile 和缓冲区生命周期。新模型可以有自己的几何要求和输出字段；UniSim 不规定 HydroShear 的网格或位移格式。
+新增触觉类型专属实现，并在 UniTac 工厂中增加一个选择分支。实现 UniSim `TactileSensor` 契约，并为每个输出声明形状、单位、坐标系、设备 profile 和缓冲区生命周期。触觉类型可以有自己的几何要求和输出字段；UniSim 不规定 HydroShear 的网格或位移格式。

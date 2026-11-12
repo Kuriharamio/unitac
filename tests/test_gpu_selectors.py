@@ -27,7 +27,7 @@ def test_device_selectors_update_and_reset_selected_environment_rows(
     num_envs, selector_kind, monkeypatch
 ):
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=num_envs,
         config=hydro_config(GEL, surface_points=1),
     )
@@ -91,7 +91,7 @@ def test_cuda_selector_path_has_no_profiled_host_transfer_or_scalar_sync(selecto
     torch = pytest.importorskip("torch")
     torch.cuda.init()
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=64,
         config=hydro_config(GEL, surface_points=1),
     )
@@ -131,7 +131,7 @@ from unitac import create_tactile_sensor
 gel = box_triangles((0.010, 0.012625, 0.003))
 gel[:, :, 2] -= 0.003
 sensor = create_tactile_sensor(
-    model="hydroshear", num_envs=1, config=hydro_config(gel, surface_points=16)
+    tactile_type="hydroshear", num_envs=1, config=hydro_config(gel, surface_points=16)
 )
 sensor.materialize(make_scene())
 positions_np, quaternions_np = full_body_poses(1, np.zeros((1, 1, 3), dtype=np.float32))
@@ -161,7 +161,7 @@ sensor.close()
 
 def test_empty_device_selectors_leave_output_and_history_unchanged():
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=64,
         config=hydro_config(GEL, surface_points=1),
     )
@@ -181,7 +181,7 @@ def test_empty_device_selectors_leave_output_and_history_unchanged():
 
 def test_non_default_torch_stream_orders_pose_advance_and_reset():
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=1,
         config=hydro_config(GEL, surface_points=16),
     )
@@ -238,7 +238,7 @@ else:
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="requires two CUDA devices")
 def test_selector_on_another_cuda_device_is_rejected():
     sensor = create_tactile_sensor(
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=4,
         config={**hydro_config(GEL, surface_points=1), "device": "cuda:0"},
     )

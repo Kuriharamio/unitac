@@ -220,8 +220,7 @@ def _measure_case(
     long_run_steps: int,
 ) -> dict[str, Any]:
     sensor = create_tactile_sensor(
-        "unitac",
-        model="hydroshear",
+        tactile_type="hydroshear",
         num_envs=num_envs,
         config=hydro_config(gel_mesh),
     )

@@ -37,7 +37,7 @@ class TactileDisplay:
         from unitac.visualization import create_visualizer
 
         self.visualizer = create_visualizer(
-            "hydroshear",
+            tactile_type="hydroshear",
             mode=mode,
             calibration_dir=calibration_dir,
             display_gain=display_gain,
